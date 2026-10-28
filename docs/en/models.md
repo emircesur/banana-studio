@@ -21,6 +21,7 @@ Once accepted, an image job keeps its provider across reloads and app restarts. 
 | Opus 5.5 — default creative model, Medium | OpenRouter | `OPENROUTER_API_KEY` |
 | GPT-6.1 Sol — Enhance, Brainstorm, variations | OpenAI → OpenRouter | `OPENAI_API_KEY` / `OPENROUTER_API_KEY` |
 | Gemini 3.8 Flash — text and footage analysis | Google Gemini → OpenRouter | `GEMINI_API_KEY` / `OPENROUTER_API_KEY` |
+| Local model (Ollama) — Enhance, Brainstorm, variations, video brief | Ollama | No key. Desktop uses `http://127.0.0.1:11434`; hosted web needs `OLLAMA_BASE_URL` |
 | Seedance 2.0 / 2.5 | EvoLink → fal.ai → OpenRouter | `EVOLINK_API_KEY` / `FAL_KEY` / `OPENROUTER_API_KEY` |
 | H3 Max — Text/Image/Reference to Video, Extend, Lip Sync, Recast | fal.ai | `FAL_KEY` |
 | Reference-video preprocessing, when required | fal.ai | `FAL_KEY` |
@@ -29,6 +30,16 @@ Once accepted, an image job keeps its provider across reloads and app restarts. 
 All three image providers support reference-based generation. Uploading references does not enable protected editing automatically: explicitly select **Edit area** for that. The final selected area is composited onto the source; outside pixels stay original regardless of provider. Tier-based Nano outputs may be resized to the source canvas before compositing, only when their proportions match. A different canvas ratio is rejected. A provider's reference-image API may be named “edit”; the app's reference-generation prompt does not carry an area edit's source-preservation instructions.
 
 Thinking/reasoning remains in AI settings. Choosing fal.ai alone does not enable Enhance or Brainstorm: fal's deprecated Any LLM endpoint is not used. An Anthropic key is not an OpenRouter key. A saved key still needs model access and sufficient API credit.
+
+## Local text models with Ollama
+
+Run Enhance, Brainstorm, variations and the final YouTube brief on your own machine without provider credits. Image and video generation still use the providers above.
+
+1. Install [Ollama](https://ollama.com/download) and pull a model: `ollama pull qwen3:8b` for text, or `ollama pull gemma3` when you use image references.
+2. In **AI settings → AI Text Model**, choose **Local model (Ollama)**, pick the installed model and save. The model choice is stored on this device.
+3. Desktop connects to `http://127.0.0.1:11434` automatically. A self-hosted web server opts in with `OLLAMA_BASE_URL` (reachable from the server), optional `OLLAMA_MODEL` (default model) and `OLLAMA_NUM_CTX` (context window, default 16384). `OLLAMA_ENABLED=false` hides the route.
+
+YouTube footage itself is still read by Gemini; the local model writes the final brief from those observations. Small models may miss Brainstorm's exact JSON format; choose a larger model if ideas are rejected.
 
 ## Video differences
 
@@ -69,6 +80,7 @@ For YouTube, create/select your own Google Cloud project, enable **YouTube Data 
 | You want… | Add and select… |
 | --- | --- |
 | One AI billing account for images + text + supported video | OpenRouter; choose GPT Image / Nano images, Opus/GPT/Gemini text and supported Seedance modes |
+| Free prompt writing on your own computer | Ollama; select Local model (Ollama) as the text model, plus any image/video provider |
 | Only images and video, writing prompts yourself | fal.ai; GPT Image / Nano, Seedance or H3 Max; no text key needed |
 | Nano images + Gemini Enhance / Brainstorm | Gemini key; select Gemini 3.8 Flash as the text model |
 | Direct GPT images + GPT text | OpenAI key; GPT Image 2.5 + GPT-6.1 Sol |

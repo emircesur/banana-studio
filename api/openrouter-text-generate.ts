@@ -4,7 +4,7 @@ import { applyCors, createUserScopedClient, requireUser } from './_lib/auth.js';
 import { startOpenAIRequest } from './_lib/openaiGuard.js';
 import { createTaskDeadline, waitForTask } from '../src/lib/shared/asyncTask.js';
 import { DEFAULT_OPENROUTER_REASONING, OPENROUTER_TEXT_MODEL, calculateOpenRouterTextCost, isOpenRouterReasoningEffort, openRouterErrorMessage } from '../src/lib/prompts/openrouterText.js';
-import { buildBrainstormOutputFormat, brainstormOutputInstruction, isBrainstormCount, YOUTUBE_ANALYSIS_FORMAT, normalizeBrainstormOutput } from './_lib/textOutputFormats.js';
+import { ANALYSIS_SYSTEM_PROMPT, TEXT_TASK_SYSTEM_PROMPT, buildBrainstormOutputFormat, brainstormOutputInstruction, isBrainstormCount, YOUTUBE_ANALYSIS_FORMAT, normalizeBrainstormOutput } from './_lib/textOutputFormats.js';
 
 export const config = { maxDuration: 300 };
 const ACTIONS = ['enhance', 'video_enhance', 'brainstorm', 'variation'];
@@ -77,8 +77,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'X-OpenRouter-Title': 'Banana Studio' },
       body: JSON.stringify({ model: upstreamModel,
         messages: [{ role: 'system', content: analysis
-          ? 'Prepare the requested factual episode analysis using only the supplied footage or verified observations. Report unavailable footage honestly; never invent events, identities, prices, outcomes or timestamps. Return exactly the requested JSON object.'
-          : 'Complete the requested prompt-writing task using the supplied brief and references. Make reasonable creative decisions without follow-up questions. Return only the finished deliverable.' + (usageContext.action === 'brainstorm' ? brainstormOutputInstruction(wardrobe, body.brainstormCount) : '') },
+          ? ANALYSIS_SYSTEM_PROMPT
+          : TEXT_TASK_SYSTEM_PROMPT + (usageContext.action === 'brainstorm' ? brainstormOutputInstruction(wardrobe, body.brainstormCount) : '') },
           { role: 'user', content }],
         reasoning: { effort, exclude: true }, max_tokens: 32768, user: user.id,
         provider: { require_parameters: true, allow_fallbacks: false, ...(model === 'gemini-3.8-flash' ? { only: ['google-ai-studio'] } : {}) },

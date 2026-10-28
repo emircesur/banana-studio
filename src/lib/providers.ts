@@ -1,12 +1,14 @@
 /** Application routes, verified against the providers' catalogues on 2026-10-20.
  * Auto selects an available route BEFORE submission, never after a paid call. */
-export type AIProvider = 'openai' | 'openrouter' | 'gemini' | 'fal' | 'evolink';
+export type AIProvider = 'openai' | 'openrouter' | 'gemini' | 'fal' | 'evolink' | 'ollama';
 export type ProviderChoice = AIProvider | 'auto';
 export const PROVIDER_LABELS: Record<AIProvider, string> = {
-  openai: 'OpenAI', openrouter: 'OpenRouter', gemini: 'Google Gemini', fal: 'fal.ai', evolink: 'EvoLink',
+  openai: 'OpenAI', openrouter: 'OpenRouter', gemini: 'Google Gemini', fal: 'fal.ai', evolink: 'EvoLink', ollama: 'Ollama (local)',
 };
 export const PROVIDER_KEYS: Record<AIProvider, string> = {
   openai: 'OPENAI_API_KEY', openrouter: 'OPENROUTER_API_KEY', gemini: 'GEMINI_API_KEY', fal: 'FAL_KEY', evolink: 'EVOLINK_API_KEY',
+  // Not a secret: the local daemon address. Desktop uses the default without setup.
+  ollama: 'OLLAMA_BASE_URL',
 };
 export const MODEL_ROUTES: Record<string, readonly AIProvider[]> = {
   'gpt-image-2.5-sunburst': ['openai', 'openrouter', 'fal'],
@@ -15,6 +17,7 @@ export const MODEL_ROUTES: Record<string, readonly AIProvider[]> = {
   'anthropic/claude-opus-5.5': ['openrouter'],
   'gpt-6.1-sol': ['openai', 'openrouter'],
   'gemini-3.8-flash': ['gemini', 'openrouter'],
+  'ollama/local': ['ollama'],
   'seedance-2.0': ['evolink', 'fal', 'openrouter'],
   'seedance-2.5': ['evolink', 'fal', 'openrouter'],
   'minimax-h3': ['fal'],

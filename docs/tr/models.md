@@ -21,6 +21,7 @@ Kabul edilen görsel işi, sayfa yenilense veya uygulama yeniden açılsa da sa�
 | Opus 5.5 — varsayılan yaratıcı model, Medium | OpenRouter | `OPENROUTER_API_KEY` |
 | GPT-6.1 Sol — Enhance, Brainstorm, varyasyon | OpenAI → OpenRouter | `OPENAI_API_KEY` / `OPENROUTER_API_KEY` |
 | Gemini 3.8 Flash — metin ve video analizi | Google Gemini → OpenRouter | `GEMINI_API_KEY` / `OPENROUTER_API_KEY` |
+| Yerel model (Ollama) — Enhance, Brainstorm, varyasyon, video özeti | Ollama | Anahtar gerekmez. Masaüstü `http://127.0.0.1:11434` kullanır; web kurulumu `OLLAMA_BASE_URL` ister |
 | Seedance 2.0 / 2.5 | EvoLink → fal.ai → OpenRouter | `EVOLINK_API_KEY` / `FAL_KEY` / `OPENROUTER_API_KEY` |
 | H3 Max — Text/Image/Reference to Video, Extend, Lip Sync, Recast | fal.ai | `FAL_KEY` |
 | Gerektiğinde video referansı ön işlemi | fal.ai | `FAL_KEY` |
@@ -29,6 +30,16 @@ Kabul edilen görsel işi, sayfa yenilense veya uygulama yeniden açılsa da sa�
 Üç görsel sağlayıcısı da referanslı yeni üretimi destekler. Referans eklemek kendiliğinden korumalı editi açmaz: bunun için **Edit area** seç. Son seçili alan kaynak görsele yerleştirilir; dışındaki pikseller sağlayıcıdan bağımsız olarak korunur. Nano'nun çözünürlük katmanlarından gelen çıktı, oranı kaynakla uyuşuyorsa birleştirmeden önce kaynak boyutuna ölçeklenebilir; farklı oran reddedilir. Sağlayıcının referans görsel kabul eden API adı “edit” olabilir; bu, uygulamada otomatik alan editi anlamına gelmez.
 
 Düşünme seviyesi AI settings'ten seçilir. Yalnızca fal.ai anahtarı Enhance/Brainstorm açmaz; artık desteklenmeyen Any LLM bağlantısını kullanmıyoruz. Anthropic anahtarı OpenRouter anahtarı değildir. Anahtarın model erişimi ve API bakiyesi bulunmalıdır.
+
+## Ollama ile yerel metin modelleri
+
+Enhance, Brainstorm, varyasyonlar ve son YouTube özeti sağlayıcı kredisi harcamadan kendi bilgisayarında çalışır. Görsel ve video üretimi yukarıdaki sağlayıcılarla devam eder.
+
+1. [Ollama](https://ollama.com/download) kur ve bir model indir: metin için `ollama pull qwen3:8b`, görsel referans kullanıyorsan `ollama pull gemma3`.
+2. **AI settings → AI Text Model** içinde **Local model (Ollama)** seç, kurulu modeli seçip kaydet. Model seçimi bu cihazda saklanır.
+3. Masaüstü uygulama `http://127.0.0.1:11434` adresine kendiliğinden bağlanır. Kendi sunucundaki web kurulumu `OLLAMA_BASE_URL` (sunucudan erişilebilir olmalı), isteğe bağlı `OLLAMA_MODEL` (varsayılan model) ve `OLLAMA_NUM_CTX` (bağlam penceresi, varsayılan 16384) ile açılır. `OLLAMA_ENABLED=false` bu bağlantıyı kapatır.
+
+YouTube videosunu yine Gemini okur; yerel model son özeti bu gözlemlerden yazar. Küçük modeller Brainstorm'un JSON biçimini tutturamayabilir; fikirler reddedilirse daha büyük bir model seç.
 
 ## Video farkları
 

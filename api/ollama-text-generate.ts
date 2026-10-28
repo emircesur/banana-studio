@@ -1,0 +1,118 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { applyCors, createUserScopedClient, requireUser } from './_lib/auth.js';
+import { missingProviderMessage } from './_lib/providerConfiguration.js';
+import { createTaskDeadline, waitForTask } from '../src/lib/shared/asyncTask.js';
+import { OLLAMA_TEXT_MODEL, buildOllamaChat, isOllamaModelName, ollamaBaseUrl, ollamaContextSize, ollamaErrorMessage } from '../src/lib/prompts/ollamaText.js';
+import { ANALYSIS_SYSTEM_PROMPT, TEXT_TASK_SYSTEM_PROMPT, buildBrainstormOutputFormat, brainstormOutputInstruction, isBrainstormCount, YOUTUBE_ANALYSIS_FORMAT, normalizeBrainstormOutput } from './_lib/textOutputFormats.js';
+
+export const config = { maxDuration: 300 };
+const ACTIONS = ['enhance', 'video_enhance', 'brainstorm', 'variation'];
+
+/** GET lists installed models; POST runs one text task on the selected local model. No provider credits are used. */
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  applyCors(res); res.setHeader('Cache-Control', 'no-store');
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'GET' && req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const auth = createTaskDeadline(15_000);
+  const user = await requireUser(req, res, auth.signal).finally(() => auth.dispose());
+  if (!user) return;
+  const base = ollamaBaseUrl(process.env);
+  if (!base) return res.status(503).json({ error: missingProviderMessage('Ollama', 'OLLAMA_BASE_URL') });
+  const defaultModel = isOllamaModelName(process.env.OLLAMA_MODEL?.trim()) ? process.env.OLLAMA_MODEL!.trim() : null;
+
+  if (req.method === 'GET') {
+    try {
+      const response = await fetch(`${base}/api/tags`, { redirect: 'error', signal: AbortSignal.timeout(5_000) });
+      if (!response.ok) return res.status(502).json({ error: ollamaErrorMessage(response.status) });
+      const data = await response.json();
+      const models = Array.isArray(data?.models) ? data.models.map((entry: any) => entry?.name).filter(isOllamaModelName).slice(0, 200) : [];
+      return res.status(200).json({ models, defaultModel });
+    } catch { return res.status(502).json({ error: ollamaErrorMessage() }); }
+  }
+
+  let body: any;
+  try { body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body; }
+  catch { return res.status(400).json({ error: 'Invalid JSON body' }); }
+  const parts = body?.contents?.parts;
+  const usageContext = body?.usageContext;
+  if (body?.model !== OLLAMA_TEXT_MODEL) return res.status(400).json({ error: 'Unsupported text model' });
+  const localModel = body.localModel ?? defaultModel;
+  if (!isOllamaModelName(localModel)) return res.status(400).json({ error: 'Choose an installed Ollama model in AI settings.' });
+  if (!ACTIONS.includes(usageContext?.action) || typeof usageContext?.prompt !== 'string') return res.status(400).json({ error: 'Invalid text feature.' });
+  if (!Array.isArray(parts) || !parts.length || parts.length > 256 || !parts.some(part => typeof part?.text === 'string' && part.text.trim())) {
+    return res.status(400).json({ error: 'Provide text and optional image references.' });
+  }
+  if (body.brainstormFormat != null && (body.brainstormFormat !== 'wardrobe' || usageContext.action !== 'brainstorm')) return res.status(400).json({ error: 'Invalid Brainstorm output format.' });
+  if (body.brainstormCount != null && (usageContext.action !== 'brainstorm' || !isBrainstormCount(body.brainstormCount))) return res.status(400).json({ error: 'Invalid Brainstorm idea count.' });
+  if (body.outputFormat != null && (body.outputFormat !== 'youtube_analysis' || usageContext.action !== 'enhance' || body.brainstormFormat != null)) return res.status(400).json({ error: 'Invalid analysis output format.' });
+  if (Buffer.byteLength(JSON.stringify(parts), 'utf8') > 4_100_000) return res.status(413).json({ error: 'Reference images are too large. Use fewer or smaller images.' });
+  for (const part of parts) {
+    const text = typeof part?.text === 'string' && !part.inlineData && !part.fileData;
+    const image = part?.text == null && !part.fileData && ['image/jpeg', 'image/png', 'image/webp'].includes(part?.inlineData?.mimeType)
+      && typeof part.inlineData.data === 'string' && /^[A-Za-z0-9+/]+={0,2}$/.test(part.inlineData.data);
+    if (!text && !image) return res.status(400).json({ error: 'Local models accept text and image references. YouTube footage requires Gemini.' });
+  }
+
+  const streaming = String(req.headers?.accept || req.headers?.Accept || '').includes('application/x-ndjson');
+  let disconnected = false;
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  const send = (event: unknown) => { if (!disconnected && !res.writableEnded && !res.destroyed) res.write(`${JSON.stringify(event)}\n`); };
+  const close = () => { disconnected = true; clearInterval(heartbeat); };
+  const fail = (status: number, error: string) => {
+    if (streaming) { send({ type: 'error', error }); return res.end(); }
+    return res.status(status).json({ error });
+  };
+  if (streaming) {
+    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8'); res.setHeader('X-Accel-Buffering', 'no');
+    res.on('close', close); send({ type: 'status', stage: 'generating' });
+    heartbeat = setInterval(() => send({ type: 'heartbeat' }), 10_000);
+  }
+  const deadline = createTaskDeadline(250_000);
+  const wardrobe = body.brainstormFormat === 'wardrobe';
+  const analysis = body.outputFormat === 'youtube_analysis';
+  const format = analysis ? YOUTUBE_ANALYSIS_FORMAT : usageContext.action === 'brainstorm' ? buildBrainstormOutputFormat(wardrobe, body.brainstormCount) : undefined;
+  try {
+    const response = await waitForTask(fetch(`${base}/api/chat`, {
+      method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' }, signal: deadline.signal,
+      body: JSON.stringify(buildOllamaChat({ model: localModel, parts, schema: format?.schema, numCtx: ollamaContextSize(process.env.OLLAMA_NUM_CTX),
+        system: analysis ? ANALYSIS_SYSTEM_PROMPT : TEXT_TASK_SYSTEM_PROMPT + (usageContext.action === 'brainstorm' ? brainstormOutputInstruction(wardrobe, body.brainstormCount) : '') })),
+    }), deadline.signal);
+    const data = await waitForTask(response.json().catch(() => null), deadline.signal);
+    if (!response.ok) return fail(response.status === 404 ? 404 : 502, ollamaErrorMessage(response.status, typeof data?.error === 'string' ? data.error : undefined));
+    if (data?.done_reason && data.done_reason !== 'stop') return fail(502, 'Model yanıtı tamamlanamadı. OLLAMA_NUM_CTX değerini artır veya isteği kısalt.');
+    let text = typeof data?.message?.content === 'string' ? data.message.content : '';
+    if (!text.trim()) return fail(502, 'Model boş yanıt döndürdü. Yeniden dene.');
+    if (streaming) send({ type: 'status', stage: 'finishing' });
+    if (usageContext.action === 'brainstorm') {
+      const normalized = normalizeBrainstormOutput(text, wardrobe, body.brainstormCount);
+      if (!normalized) return fail(502, 'Model fikirleri beklenen biçimde döndürmedi. Yeniden dene veya daha güçlü bir yerel model seç.');
+      text = normalized;
+    }
+    if (analysis) {
+      let value: any;
+      try { value = JSON.parse(text); } catch { /* checked below */ }
+      if (typeof value?.videoAvailable !== 'boolean' || typeof value.brief !== 'string' || typeof value.premise !== 'string'
+        || typeof value.limitation !== 'string' || !Array.isArray(value.evidence)) return fail(502, 'Model video analizini beklenen biçimde döndürmedi.');
+    }
+    // Local usage is free; record token counts so admin usage still shows the activity.
+    const accounting = createTaskDeadline(5_000);
+    let usageLogged = false;
+    try {
+      const { error } = await waitForTask(createUserScopedClient(req).from('usage_logs').insert({
+        user_id: user.id, action: usageContext.action, model: OLLAMA_TEXT_MODEL,
+        prompt: usageContext.prompt.slice(0, 500), image_count: 0, estimated_cost: 0,
+      }).abortSignal(accounting.signal), accounting.signal);
+      usageLogged = !error;
+    } catch { /* Accounting never fails a completed local response. */ }
+    finally { accounting.dispose(); }
+    const usage = { prompt_tokens: data.prompt_eval_count ?? null, completion_tokens: data.eval_count ?? null };
+    const result = { text, candidates: null, provider: 'ollama', providerModel: localModel, usageMetadata: { provider: 'ollama', ollamaUsage: usage, usageLogged } };
+    if (streaming) { send({ type: 'result', result }); return res.end(); }
+    return res.status(200).json(result);
+  } catch (error: any) {
+    const timeout = error?.name === 'TimeoutError' || error?.name === 'AbortError';
+    return fail(timeout ? 504 : 502, timeout ? 'Yerel model yanıt süresi aşıldı. Daha küçük bir model seç veya isteği kısalt.' : ollamaErrorMessage());
+  } finally {
+    deadline.dispose(); clearInterval(heartbeat); res.off?.('close', close);
+  }
+}

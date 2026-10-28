@@ -2,6 +2,7 @@ import { supabase } from './authService';
 import { createTaskDeadline, waitForTask } from '../lib/shared/asyncTask';
 import type { OpenAIReasoningEffort } from '../lib/prompts/openaiText';
 import { selectProvider } from './providerRouting';
+import { getOllamaModel } from '../lib/prompts/textModels';
 
 export type TextTaskStage = 'preparing' | 'connecting' | 'generating' | 'finishing';
 export interface TextTaskOptions {
@@ -40,6 +41,8 @@ export interface GenerateContentRequest {
   brainstormFormat?: 'wardrobe';
   brainstormCount?: number;
   outputFormat?: 'youtube_analysis';
+  /** Installed Ollama model for the local text route. */
+  localModel?: string;
   usageContext?: { action: 'enhance' | 'video_enhance' | 'brainstorm' | 'variation'; prompt: string };
 }
 
@@ -169,6 +172,7 @@ const routeTextContent = async (request: GenerateContentRequest, options?: TextT
     usageContext: request.usageContext || { action: 'enhance' as const, prompt: video ? '[youtube-video-brief]' : '[text-task]' },
     ...(video ? { outputFormat: 'youtube_analysis' as const } : {}),
   };
+  if (provider === 'ollama') return generateContent({ ...normalized, localModel: getOllamaModel() || undefined }, '/api/ollama-text-generate', options);
   return generateContent(normalized, provider === 'openrouter' ? '/api/openrouter-text-generate' : provider === 'openai' ? '/api/openai-text-generate' : GEMINI_ENDPOINT, options);
 };
 export const getGeminiClient = () => ({
