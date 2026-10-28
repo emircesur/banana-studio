@@ -1,6 +1,8 @@
 import { GoogleGenAI } from '@google/genai';
 import { OPENROUTER_MODELS, type AIProvider } from '../../src/lib/providers.js';
 import { providerImageData } from './providerMedia.js';
+import { comfyImage, sdwebuiImage } from './localMedia.js';
+import { localImageSize } from '../../src/lib/localModels.js';
 
 export const imageProviderModel = (provider: AIProvider, model: string, references: boolean): string => provider === 'openrouter'
   ? OPENROUTER_MODELS[model] : provider === 'fal'
@@ -53,6 +55,16 @@ export async function requestImage(provider: AIProvider, model: string, input: R
     }
     if (bytes.length > 50 * 1024 * 1024) throw new Error('Generated image exceeds the output limit.');
     return Response.json({ data: [{ b64_json: bytes.toString('base64') }], output_format: input.output_format }, { headers: { 'x-request-id': response.headers.get('x-fal-request-id') || '' } });
+  }
+  if (provider === 'sdwebui' || provider === 'comfyui') {
+    // Diffusion models read the user's prompt; the edit compositor still protects pixels outside the selection.
+    const init = input.images?.[input.localInit ?? 0]?.image_url;
+    const match = init ? (await providerImageData(db, init)).match(/^data:(image\/(?:png|jpeg|webp));base64,(.+)$/s) : null;
+    if (init && !match) throw new Error('This reference could not be prepared for the local server.');
+    const job = { prompt: input.localPrompt || input.prompt, ...localImageSize(input.aspect_ratio, input.resolution, input.localSource),
+      checkpoint: input.localModel, workflow: input.localWorkflow, ...(match ? { image: Buffer.from(match[2], 'base64'), imageMime: match[1] } : {}) };
+    const bytes = provider === 'sdwebui' ? await sdwebuiImage(job, signal) : await comfyImage(job, signal);
+    return Response.json({ data: [{ b64_json: bytes.toString('base64') }], usage: { cost: 0 }, output_format: 'png' });
   }
   if (provider === 'gemini' && model.startsWith('gemini-')) {
     const parts: any[] = [];

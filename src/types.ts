@@ -4,7 +4,7 @@ export type { H3MaxMode, H3MaxOptions, H3MaxSelection } from './lib/video/h3Max.
 export type AspectRatio = '1:1' | '3:4' | '4:3' | '9:16' | '16:9';
 export type Resolution = '1K' | '2K' | '4K';
 /** Retired model IDs remain readable in historical gallery rows. */
-export type ImageModelId = 'gemini-3-pro-image-preview' | 'gemini-nano-banana-2.1' | 'gemini-3.1-flash-image-preview' | 'gpt-image-2-beta' | 'gpt-image-2.5-sunburst';
+export type ImageModelId = 'gemini-3-pro-image-preview' | 'gemini-nano-banana-2.1' | 'gemini-3.1-flash-image-preview' | 'gpt-image-2-beta' | 'gpt-image-2.5-sunburst' | 'local-image';
 export interface OpenAIImageOptions {
   quality: 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   size: 'preset' | 'auto' | 'custom';
@@ -21,7 +21,7 @@ export type LocalImageSyncStatus = 'local-only' | 'synced';
 
 export type GenerationMode = 'image' | 'video';
 export type MediaType = 'image' | 'video';
-export type VideoModelId = 'seedance-2.0' | 'seedance-2.5' | 'minimax-h3';
+export type VideoModelId = 'seedance-2.0' | 'seedance-2.5' | 'minimax-h3' | 'local-video';
 export type VideoOperation = 'generate' | 'reference_edit' | 'edit' | 'extend';
 /** Continue can also create a new shot from a marked reference in Generate mode. */
 export type VideoPromptIntent = VideoOperation | 'continue';
@@ -39,6 +39,7 @@ export const IMAGE_MODEL_OPTIONS: { label: string; value: ImageModelId }[] = [
   { label: 'Nano Banana Pro', value: 'gemini-3-pro-image-preview' },
   { label: 'Nano Banana 2.1', value: 'gemini-nano-banana-2.1' },
   { label: 'GPT Image 2.5', value: 'gpt-image-2.5-sunburst' },
+  { label: 'Local · Stable Diffusion / ComfyUI', value: 'local-image' },
 ];
 
 /** Resolve new drafts without relabeling or rewriting saved generations. */
@@ -68,6 +69,7 @@ export const VIDEO_MODEL_OPTIONS: { label: string; value: VideoModelId }[] = [
   { label: 'Seedance 2.0', value: 'seedance-2.0' },
   { label: 'Seedance 2.5 Relaxed', value: 'seedance-2.5' },
   { label: 'MiniMax H3 Max', value: 'minimax-h3' },
+  { label: 'Local · ComfyUI workflow', value: 'local-video' },
 ];
 
 export const VIDEO_QUALITY_OPTIONS: { label: string; value: VideoQuality }[] = [
@@ -106,9 +108,9 @@ export const TEXT_MODEL_OPTIONS: { label: string; value: TextModelId; descriptio
     description: 'Adjustable reasoning · High by default. Enhance, brainstorm, variations and evidence-based video briefs with image references.',
   },
   {
-    label: 'Local model (Ollama)',
+    label: 'Local model (Ollama / LM Studio)',
     value: 'ollama/local',
-    description: 'Runs on your own Ollama server with no provider credits. Pick an installed model below; image references need a vision model.',
+    description: 'Runs on your own Ollama or OpenAI-compatible server (LM Studio, llama.cpp, vLLM) with no provider credits. Pick an installed model below; image references need a vision model.',
   },
 ];
 
@@ -217,7 +219,7 @@ export type VideoPricingRate = {
 // EvoLink Standard-route pricing per billed second. Seedance video-input jobs
 // bill max(total input video duration, output duration) + output duration.
 // Sources: https://evolink.ai/seedance-2-0 and https://evolink.ai/seedance-2-5
-export const EVOLINK_PRICING: Record<Exclude<VideoModelId, 'minimax-h3'>, Partial<Record<VideoQuality, VideoPricingRate>>> = {
+export const EVOLINK_PRICING: Record<Exclude<VideoModelId, 'minimax-h3' | 'local-video'>, Partial<Record<VideoQuality, VideoPricingRate>>> = {
   'seedance-2.0': {
     '480p': { noVideoInput: 0.092, withVideoInput: 0.056, credits: { noVideoInput: 6.2775, withVideoInput: 3.834 } },
     '720p': { noVideoInput: 0.199, withVideoInput: 0.121, credits: { noVideoInput: 13.5, withVideoInput: 8.2215 } },
@@ -311,6 +313,8 @@ export const estimateVideoCost = (
   referenceImageCount: number = 0,
   h3Mode?: H3GenerationMode,
 ): VideoCost => {
+  // Self-hosted servers bill nothing.
+  if (model === 'local-video') return { usd: 0, source: 'published_estimate' };
   if (model === 'minimax-h3') {
     const duration = Math.max(5, Math.min(15, outputDuration === -1 ? 5 : outputDuration));
     if (h3Mode === 'text_only' || h3Mode === 'image_to_video') {
@@ -418,6 +422,7 @@ export const estimateImageCost = (
   // Historical costs cannot be inferred without Sunburst quality/size. New
   // generation previews use getImageCostPreview with the full settings.
   if (model === 'gpt-image-2.5-sunburst') return count === 0 ? 0 : null;
+  if (model === 'local-image') return 0;
   // Nano Banana 2.1 bills actual input, thinking and image-output tokens.
   // The queue does not expose them; never reuse Nano Banana 2's flat fees.
   if (model === 'gemini-nano-banana-2.1') return count === 0 ? 0 : null;

@@ -10,6 +10,7 @@ import { createTaskDeadline, waitForTask } from '../lib/shared/asyncTask';
 import { compressBase64Image } from "./imageCompression";
 import { generateOpenAIImage, type ImageGenerationContext } from "./openaiImageService";
 import { getSunburstReferences, SUNBURST_MODEL } from "../lib/images/openaiImage";
+import { LOCAL_IMAGE_MODEL } from "../lib/localModels";
 import { assembleSunburstBrainstormIdea, buildReferenceGenerationRule, buildSunburstGuidance, prepareImagePromptResult, buildYouTubeCameraGazeRule, buildYouTubeWardrobeRule, buildYouTubeEditorialRule, buildYouTubeStyleReferenceRule, describeSunburstReference, getSunburstEditIntent, isYouTubeChannelBannerPrompt, isYouTubeThumbnailPrompt, normalizeSunburstPrompt, preserveSunburstEditBrief, preserveSunburstSourceBrief, preserveSunburstThumbnailBrief, stripLegacyOutputCanvas, type ImagePromptSettings } from "../lib/images/imagePrompting";
 import { logUsage } from "./authService";
 import { refreshMediaAccessUrl } from './storageService';
@@ -53,7 +54,8 @@ const isSupportedImageModel = (model: unknown): model is ImageModelId => {
   return model === 'gemini-3-pro-image-preview'
     || model === 'gemini-3.1-flash-image-preview'
     || model === 'gemini-nano-banana-2.1'
-    || model === SUNBURST_MODEL;
+    || model === SUNBURST_MODEL
+    || model === LOCAL_IMAGE_MODEL;
 };
 
 /**

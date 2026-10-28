@@ -2,7 +2,8 @@ import { supabase } from './authService';
 import { createTaskDeadline, waitForTask } from '../lib/shared/asyncTask';
 import type { OpenAIReasoningEffort } from '../lib/prompts/openaiText';
 import { selectProvider } from './providerRouting';
-import { getOllamaModel } from '../lib/prompts/textModels';
+import { OLLAMA_TEXT_MODEL, getOllamaModel } from '../lib/prompts/textModels';
+import { getTextModelLabel } from '../types';
 
 export type TextTaskStage = 'preparing' | 'connecting' | 'generating' | 'finishing';
 export interface TextTaskOptions {
@@ -41,8 +42,10 @@ export interface GenerateContentRequest {
   brainstormFormat?: 'wardrobe';
   brainstormCount?: number;
   outputFormat?: 'youtube_analysis';
-  /** Installed Ollama model for the local text route. */
+  /** Installed model and server for the local text route. */
   localModel?: string;
+  provider?: string;
+  fallbackFor?: string;
   usageContext?: { action: 'enhance' | 'video_enhance' | 'brainstorm' | 'variation'; prompt: string };
 }
 
@@ -172,7 +175,11 @@ const routeTextContent = async (request: GenerateContentRequest, options?: TextT
     usageContext: request.usageContext || { action: 'enhance' as const, prompt: video ? '[youtube-video-brief]' : '[text-task]' },
     ...(video ? { outputFormat: 'youtube_analysis' as const } : {}),
   };
-  if (provider === 'ollama') return generateContent({ ...normalized, localModel: getOllamaModel() || undefined }, '/api/ollama-text-generate', options);
+  if (provider === 'ollama' || provider === 'openaicompat') {
+    // Auto may fall back from a cloud text model with no key to the local server.
+    return generateContent({ ...normalized, model: OLLAMA_TEXT_MODEL, provider, localModel: getOllamaModel(provider) || undefined,
+      ...(request.model !== OLLAMA_TEXT_MODEL ? { fallbackFor: getTextModelLabel(request.model) } : {}) }, '/api/ollama-text-generate', options);
+  }
   return generateContent(normalized, provider === 'openrouter' ? '/api/openrouter-text-generate' : provider === 'openai' ? '/api/openai-text-generate' : GEMINI_ENDPOINT, options);
 };
 export const getGeminiClient = () => ({

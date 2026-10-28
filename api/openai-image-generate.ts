@@ -14,6 +14,7 @@ import { readEditSource, compositeProtectedEdit } from './_lib/protectedImageEdi
 import { readImageDimensions } from './_lib/imageDimensions.js';
 import { saveGeneratedImage, readStoredImage, imageSha256, signedMediaUrl, canonicalMediaUrl } from './_lib/imageStorage.js';
 import { startOpenAIRequest } from './_lib/openaiGuard.js';
+import { LOCAL_IMAGE_MODEL, isLocalAssetName, isWorkflowName } from '../src/lib/localModels.js';
 import { openAIErrorMessage, safeOpenAIErrorCode, imageRateLimitDelay } from './_lib/openaiError.js';
 
 // Match the existing deployment's 300-second function budget. No automatic
@@ -49,7 +50,8 @@ export async function executeOpenAIImage(req:VercelRequest,res:VercelResponse,co
   try { body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body; }
   catch { return res.status(400).json({ error: 'Invalid JSON body' }); }
   if (!body || typeof body !== 'object' || Array.isArray(body)) return res.status(400).json({ error: 'Invalid request body' });
-  if (!['gpt-image-2.5-sunburst','gemini-3-pro-image-preview','gemini-nano-banana-2.1'].includes(body.model)) return res.status(400).json({ error: 'Unsupported OpenAI image model' });
+  if (!['gpt-image-2.5-sunburst','gemini-3-pro-image-preview','gemini-nano-banana-2.1',LOCAL_IMAGE_MODEL].includes(body.model)) return res.status(400).json({ error: 'Unsupported OpenAI image model' });
+  if ((body.localModel != null && !isLocalAssetName(body.localModel)) || (body.localWorkflow != null && !isWorkflowName(body.localWorkflow))) return res.status(400).json({ error: 'Invalid local model or workflow.' });
   if (typeof body.id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(body.id)) return res.status(400).json({ error: 'Invalid generation ID' });
   if (typeof body.prompt !== 'string' || !body.prompt.trim() || body.prompt.length > 32000) return res.status(400).json({ error: 'Prompt must contain 1–32,000 characters.' });
   if (!['1:1', '4:3', '3:4', '16:9', '9:16'].includes(body.aspectRatio) || !['1K', '2K', '4K'].includes(body.resolution)) return res.status(400).json({ error: 'Invalid ratio or resolution.' });
@@ -138,6 +140,9 @@ export async function executeOpenAIImage(req:VercelRequest,res:VercelResponse,co
       user: user.id,
     };
     // Let Sunburst use its default input fidelity for generation and edits.
+    if (body.model === LOCAL_IMAGE_MODEL) Object.assign(input, { localPrompt: body.prompt, localModel: body.localModel, localWorkflow: body.localWorkflow,
+      localInit: Math.max(0, generationReferences.findIndex(ref => ref.id === editReference?.id)),
+      ...(protectedSource ? { localSource: { width: protectedSource.info.width, height: protectedSource.info.height } } : {}) });
     if (generationReferences.length) input.images = await Promise.all(generationReferences.map(async ref => ({ image_url: await providerImageUrl(db, ref.data) })));
 
     if (context.dispatch && !await context.dispatch(metadata)) {

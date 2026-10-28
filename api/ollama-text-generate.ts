@@ -2,13 +2,15 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { applyCors, createUserScopedClient, requireUser } from './_lib/auth.js';
 import { missingProviderMessage } from './_lib/providerConfiguration.js';
 import { createTaskDeadline, waitForTask } from '../src/lib/shared/asyncTask.js';
-import { OLLAMA_TEXT_MODEL, buildOllamaChat, isOllamaModelName, ollamaBaseUrl, ollamaContextSize, ollamaErrorMessage } from '../src/lib/prompts/ollamaText.js';
+import { OLLAMA_TEXT_MODEL, buildOllamaChat, buildOpenAICompatibleChat, isOllamaModelName, ollamaContextSize, ollamaErrorMessage } from '../src/lib/prompts/ollamaText.js';
+import { isLocalAssetName, localServerUrl, LOCAL_SERVERS } from '../src/lib/localModels.js';
 import { ANALYSIS_SYSTEM_PROMPT, TEXT_TASK_SYSTEM_PROMPT, buildBrainstormOutputFormat, brainstormOutputInstruction, isBrainstormCount, YOUTUBE_ANALYSIS_FORMAT, normalizeBrainstormOutput } from './_lib/textOutputFormats.js';
 
 export const config = { maxDuration: 300 };
 const ACTIONS = ['enhance', 'video_enhance', 'brainstorm', 'variation'];
 
-/** GET lists installed models; POST runs one text task on the selected local model. No provider credits are used. */
+/** GET lists installed models; POST runs one text task on the selected local model. No provider credits are used.
+ * Serves Ollama's native API and any OpenAI-compatible server (LM Studio, llama.cpp, vLLM, LocalAI). */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   applyCors(res); res.setHeader('Cache-Control', 'no-store');
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -16,28 +18,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const auth = createTaskDeadline(15_000);
   const user = await requireUser(req, res, auth.signal).finally(() => auth.dispose());
   if (!user) return;
-  const base = ollamaBaseUrl(process.env);
-  if (!base) return res.status(503).json({ error: missingProviderMessage('Ollama', 'OLLAMA_BASE_URL') });
-  const defaultModel = isOllamaModelName(process.env.OLLAMA_MODEL?.trim()) ? process.env.OLLAMA_MODEL!.trim() : null;
+  let body: any;
+  try { body = req.method === 'GET' ? {} : typeof req.body === 'string' ? JSON.parse(req.body) : req.body; }
+  catch { return res.status(400).json({ error: 'Invalid JSON body' }); }
+  const server = (req.method === 'GET' ? req.query?.provider : body?.provider) === 'openaicompat' ? 'openaicompat' : 'ollama';
+  const native = server === 'ollama';
+  const isModelName = native ? isOllamaModelName : isLocalAssetName;
+  const base = localServerUrl(server, process.env);
+  if (!base) return res.status(503).json({ error: missingProviderMessage(LOCAL_SERVERS[server].label, LOCAL_SERVERS[server].env) });
+  const configured = (native ? process.env.OLLAMA_MODEL : process.env.LOCAL_OPENAI_MODEL)?.trim();
+  const defaultModel = isModelName(configured) ? configured : null;
+  const unreachable = typeof body?.fallbackFor === 'string'
+    ? `${body.fallbackFor.slice(0, 60)} için anahtar yok ve yerel model sunucusuna ulaşılamadı. Provider keys'e anahtar ekle veya Ollama / LM Studio'yu başlat.`
+    : native ? ollamaErrorMessage() : 'Yerel OpenAI-uyumlu sunucuya ulaşılamadı. LM Studio sunucusunun açık olduğunu ve LOCAL_OPENAI_BASE_URL adresini kontrol et.';
 
   if (req.method === 'GET') {
     try {
-      const response = await fetch(`${base}/api/tags`, { redirect: 'error', signal: AbortSignal.timeout(5_000) });
-      if (!response.ok) return res.status(502).json({ error: ollamaErrorMessage(response.status) });
+      const response = await fetch(`${base}${native ? '/api/tags' : '/models'}`, { redirect: 'error', signal: AbortSignal.timeout(5_000) });
+      if (!response.ok) return res.status(502).json({ error: native ? ollamaErrorMessage(response.status) : unreachable });
       const data = await response.json();
-      const models = Array.isArray(data?.models) ? data.models.map((entry: any) => entry?.name).filter(isOllamaModelName).slice(0, 200) : [];
-      return res.status(200).json({ models, defaultModel });
-    } catch { return res.status(502).json({ error: ollamaErrorMessage() }); }
+      const entries = native ? data?.models?.map((entry: any) => entry?.name) : data?.data?.map((entry: any) => entry?.id);
+      return res.status(200).json({ models: Array.isArray(entries) ? entries.filter(isModelName).slice(0, 200) : [], defaultModel });
+    } catch { return res.status(502).json({ error: unreachable }); }
   }
-
-  let body: any;
-  try { body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body; }
-  catch { return res.status(400).json({ error: 'Invalid JSON body' }); }
   const parts = body?.contents?.parts;
   const usageContext = body?.usageContext;
   if (body?.model !== OLLAMA_TEXT_MODEL) return res.status(400).json({ error: 'Unsupported text model' });
   const localModel = body.localModel ?? defaultModel;
-  if (!isOllamaModelName(localModel)) return res.status(400).json({ error: 'Choose an installed Ollama model in AI settings.' });
+  if (!isModelName(localModel)) return res.status(400).json({ error: 'Choose an installed local model in AI settings → AI Text Model.' });
   if (!ACTIONS.includes(usageContext?.action) || typeof usageContext?.prompt !== 'string') return res.status(400).json({ error: 'Invalid text feature.' });
   if (!Array.isArray(parts) || !parts.length || parts.length > 256 || !parts.some(part => typeof part?.text === 'string' && part.text.trim())) {
     return res.status(400).json({ error: 'Provide text and optional image references.' });
@@ -72,15 +80,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const analysis = body.outputFormat === 'youtube_analysis';
   const format = analysis ? YOUTUBE_ANALYSIS_FORMAT : usageContext.action === 'brainstorm' ? buildBrainstormOutputFormat(wardrobe, body.brainstormCount) : undefined;
   try {
-    const response = await waitForTask(fetch(`${base}/api/chat`, {
+    const chat = { model: localModel, parts, schema: format?.schema, numCtx: ollamaContextSize(process.env.OLLAMA_NUM_CTX),
+      system: analysis ? ANALYSIS_SYSTEM_PROMPT : TEXT_TASK_SYSTEM_PROMPT + (usageContext.action === 'brainstorm' ? brainstormOutputInstruction(wardrobe, body.brainstormCount) : '') };
+    const response = await waitForTask(fetch(`${base}${native ? '/api/chat' : '/chat/completions'}`, {
       method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' }, signal: deadline.signal,
-      body: JSON.stringify(buildOllamaChat({ model: localModel, parts, schema: format?.schema, numCtx: ollamaContextSize(process.env.OLLAMA_NUM_CTX),
-        system: analysis ? ANALYSIS_SYSTEM_PROMPT : TEXT_TASK_SYSTEM_PROMPT + (usageContext.action === 'brainstorm' ? brainstormOutputInstruction(wardrobe, body.brainstormCount) : '') })),
+      body: JSON.stringify(native ? buildOllamaChat(chat) : buildOpenAICompatibleChat(chat, format?.name)),
     }), deadline.signal);
     const data = await waitForTask(response.json().catch(() => null), deadline.signal);
-    if (!response.ok) return fail(response.status === 404 ? 404 : 502, ollamaErrorMessage(response.status, typeof data?.error === 'string' ? data.error : undefined));
-    if (data?.done_reason && data.done_reason !== 'stop') return fail(502, 'Model yanıtı tamamlanamadı. OLLAMA_NUM_CTX değerini artır veya isteği kısalt.');
-    let text = typeof data?.message?.content === 'string' ? data.message.content : '';
+    const detail = typeof data?.error === 'string' ? data.error : typeof data?.error?.message === 'string' ? data.error.message : undefined;
+    if (!response.ok) return fail(response.status === 404 ? 404 : 502, ollamaErrorMessage(response.status, detail));
+    const choice = data?.choices?.[0];
+    const finish = native ? data?.done_reason : choice?.finish_reason;
+    if (finish && finish !== 'stop') return fail(502, 'Model yanıtı tamamlanamadı. Bağlam penceresini (OLLAMA_NUM_CTX / sunucu ayarı) artır veya isteği kısalt.');
+    const content = native ? data?.message?.content : choice?.message?.content;
+    // Reasoning models may wrap their scratchpad in <think> tags on OpenAI-compatible servers.
+    let text = typeof content === 'string' ? content.replace(/^\s*<think>[\s\S]*?<\/think>\s*/, '') : '';
     if (!text.trim()) return fail(502, 'Model boş yanıt döndürdü. Yeniden dene.');
     if (streaming) send({ type: 'status', stage: 'finishing' });
     if (usageContext.action === 'brainstorm') {
@@ -105,13 +119,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       usageLogged = !error;
     } catch { /* Accounting never fails a completed local response. */ }
     finally { accounting.dispose(); }
-    const usage = { prompt_tokens: data.prompt_eval_count ?? null, completion_tokens: data.eval_count ?? null };
-    const result = { text, candidates: null, provider: 'ollama', providerModel: localModel, usageMetadata: { provider: 'ollama', ollamaUsage: usage, usageLogged } };
+    const usage = native ? { prompt_tokens: data.prompt_eval_count ?? null, completion_tokens: data.eval_count ?? null } : { prompt_tokens: data.usage?.prompt_tokens ?? null, completion_tokens: data.usage?.completion_tokens ?? null };
+    const result = { text, candidates: null, provider: server, providerModel: localModel, usageMetadata: { provider: server, localUsage: usage, usageLogged } };
     if (streaming) { send({ type: 'result', result }); return res.end(); }
     return res.status(200).json(result);
   } catch (error: any) {
     const timeout = error?.name === 'TimeoutError' || error?.name === 'AbortError';
-    return fail(timeout ? 504 : 502, timeout ? 'Yerel model yanıt süresi aşıldı. Daha küçük bir model seç veya isteği kısalt.' : ollamaErrorMessage());
+    return fail(timeout ? 504 : 502, timeout ? 'Yerel model yanıt süresi aşıldı. Daha küçük bir model seç veya isteği kısalt.' : unreachable);
   } finally {
     deadline.dispose(); clearInterval(heartbeat); res.off?.('close', close);
   }

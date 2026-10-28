@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { MODEL_ROUTES, PROVIDER_LABELS, resolveProvider, type AIProvider, type ProviderAvailability, type ProviderChoice } from '../lib/providers';
+import { LOCAL_PROVIDERS, MODEL_ROUTES, PROVIDER_KEYS, PROVIDER_LABELS, resolveProvider, type AIProvider, type ProviderAvailability, type ProviderChoice } from '../lib/providers';
 import { getProviderAvailability, getProviderPreferences, saveProviderPreference } from '../services/providerRouting';
 import { Dropdown } from './ControlDropdown';
 
@@ -8,6 +8,7 @@ const MODELS: Record<string,string> = {
   'gpt-image-2.5-sunburst':'GPT Image 2.5', 'gemini-3-pro-image-preview':'Nano Banana Pro', 'gemini-nano-banana-2.1':'Nano Banana 2.1',
   'anthropic/claude-opus-5.5':'Claude Opus 5.5', 'gpt-6.1-sol':'GPT-6.1 Sol', 'gemini-3.8-flash':'Gemini 3.8 Flash · text / video analysis', 'ollama/local':'Local model (Ollama) · text',
   'seedance-2.0':'Seedance 2.0', 'seedance-2.5':'Seedance 2.5', 'minimax-h3':'MiniMax H3 Max',
+  'local-image':'Local image · SD WebUI / ComfyUI', 'local-video':'Local video · ComfyUI',
 };
 export function useProviderRoute(model: string) {
   const [state,setState] = useState<{ model:string; provider?:AIProvider; choice:ProviderChoice; available:ProviderAvailability; error?:string }>({ model:'',choice:'auto',available:{} });
@@ -38,7 +39,8 @@ export function ProviderRouteControl({ model, compact = false, showError = true 
     finally { setSaving(false); }
   };
   const options = [{value:'auto',label:`Auto${route.provider && route.choice === 'auto' ? ` · ${PROVIDER_LABELS[route.provider]}` : ''}`},
-    ...(MODEL_ROUTES[model] || []).map(provider => ({value:provider,label:`${PROVIDER_LABELS[provider]}${route.available[provider] ? '' : provider === 'ollama' ? ' · set OLLAMA_BASE_URL' : ' · key needed'}`}))];
+    // Local servers appear as Auto fallbacks for cloud models; they are pinned only on local models.
+    ...(MODEL_ROUTES[model] || []).filter(provider => !LOCAL_PROVIDERS.includes(provider) || MODEL_ROUTES[model].every(route => LOCAL_PROVIDERS.includes(route))).map(provider => ({value:provider,label:`${PROVIDER_LABELS[provider]}${route.available[provider] ? '' : LOCAL_PROVIDERS.includes(provider) ? ` · set ${PROVIDER_KEYS[provider]}` : ' · key needed'}`}))];
   return <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
     {compact ? <><span className="text-gray-500">Provider</span><Dropdown label="Provider" value={route.choice} options={options} onSelect={value => void save(value)} disabled={saving} compact /></> : <label className="flex items-center gap-2 text-gray-400">Provider
       <select aria-label={`${MODELS[model] || model} provider`} value={route.choice} disabled={saving}
@@ -55,6 +57,6 @@ export function ProviderRoutingSettings() {
     <div><h3 id="provider-routing-title" className="font-semibold">Provider routing</h3>
       <p className="mt-2 text-xs leading-relaxed text-gray-400">Add only the keys you need. Auto uses the first configured provider shown for each model. A running request keeps its provider and is never resubmitted to a different service. These route preferences are saved on this device.</p></div>
     {Object.keys(MODELS).map(model => <div key={model}><p className="mb-1.5 text-sm text-gray-200">{MODELS[model]}</p><ProviderRouteControl model={model} showError={false} /></div>)}
-    <p className="text-xs leading-relaxed text-gray-500">fal.ai covers image/video models; Enhance and Brainstorm require OpenRouter, OpenAI, Gemini or a local Ollama server (no key; choose the installed model in AI Text Model). YouTube lookup uses a separate YouTube Data API key. H3 Max requires fal.ai. Seedance 2.5 Relaxed is an EvoLink option; other routes use standard Seedance 2.5.</p>
+    <p className="text-xs leading-relaxed text-gray-500">fal.ai covers image/video models; Enhance and Brainstorm require OpenRouter, OpenAI, Gemini or a local server (Ollama, LM Studio; no key). Without a cloud key, Auto falls back to the local text server. Local image and video run on your own Stable Diffusion WebUI or ComfyUI; choose models in Local models. YouTube lookup uses a separate YouTube Data API key. H3 Max requires fal.ai. Seedance 2.5 Relaxed is an EvoLink option; other routes use standard Seedance 2.5.</p>
   </section>;
 }

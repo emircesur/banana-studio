@@ -21,7 +21,7 @@ Once accepted, an image job keeps its provider across reloads and app restarts. 
 | Opus 5.5 — default creative model, Medium | OpenRouter | `OPENROUTER_API_KEY` |
 | GPT-6.1 Sol — Enhance, Brainstorm, variations | OpenAI → OpenRouter | `OPENAI_API_KEY` / `OPENROUTER_API_KEY` |
 | Gemini 3.8 Flash — text and footage analysis | Google Gemini → OpenRouter | `GEMINI_API_KEY` / `OPENROUTER_API_KEY` |
-| Local model (Ollama) — Enhance, Brainstorm, variations, video brief | Ollama | No key. Desktop uses `http://127.0.0.1:11434`; hosted web needs `OLLAMA_BASE_URL` |
+| Local text / image / video — see [Local models](#local-models-no-key-no-credits) | Ollama / LM Studio · SD WebUI → ComfyUI · ComfyUI | No key. Desktop uses default local addresses; web needs `*_BASE_URL` |
 | Seedance 2.0 / 2.5 | EvoLink → fal.ai → OpenRouter | `EVOLINK_API_KEY` / `FAL_KEY` / `OPENROUTER_API_KEY` |
 | H3 Max — Text/Image/Reference to Video, Extend, Lip Sync, Recast | fal.ai | `FAL_KEY` |
 | Reference-video preprocessing, when required | fal.ai | `FAL_KEY` |
@@ -31,15 +31,26 @@ All three image providers support reference-based generation. Uploading referenc
 
 Thinking/reasoning remains in AI settings. Choosing fal.ai alone does not enable Enhance or Brainstorm: fal's deprecated Any LLM endpoint is not used. An Anthropic key is not an OpenRouter key. A saved key still needs model access and sufficient API credit.
 
-## Local text models with Ollama
+## Local models (no key, no credits)
 
-Run Enhance, Brainstorm, variations and the final YouTube brief on your own machine without provider credits. Image and video generation still use the providers above.
+Text, images and video can run on servers on your own computer or network. Image and video quality depends on the model you install; the app's protected-edit compositing still keeps pixels outside an edit selection unchanged.
 
-1. Install [Ollama](https://ollama.com/download) and pull a model: `ollama pull qwen3:8b` for text, or `ollama pull gemma3` when you use image references.
-2. In **AI settings → AI Text Model**, choose **Local model (Ollama)**, pick the installed model and save. The model choice is stored on this device.
-3. Desktop connects to `http://127.0.0.1:11434` automatically. A self-hosted web server opts in with `OLLAMA_BASE_URL` (reachable from the server), optional `OLLAMA_MODEL` (default model) and `OLLAMA_NUM_CTX` (context window, default 16384). `OLLAMA_ENABLED=false` hides the route.
+| Feature | Model in the app | Local server · default address | Server variable |
+| --- | --- | --- | --- |
+| Enhance, Brainstorm, variations, video brief | Local model (Ollama / LM Studio) | Ollama · `http://127.0.0.1:11434` | `OLLAMA_BASE_URL` |
+| | | LM Studio, llama.cpp, vLLM, LocalAI · `http://127.0.0.1:1234/v1` | `LOCAL_OPENAI_BASE_URL` |
+| Images, references, area edits | Local · Stable Diffusion / ComfyUI | AUTOMATIC1111 / Forge / SD.Next (start with `--api`) · `http://127.0.0.1:7860` | `SDWEBUI_BASE_URL` |
+| | | ComfyUI · `http://127.0.0.1:8188` | `COMFYUI_BASE_URL` |
+| Video (text or one image) | Local · ComfyUI workflow | ComfyUI | `COMFYUI_BASE_URL` |
 
-YouTube footage itself is still read by Gemini; the local model writes the final brief from those observations. Small models may miss Brainstorm's exact JSON format; choose a larger model if ideas are rejected.
+**Desktop (macOS, Windows):** the app connects to the default addresses automatically; start the server and choose the model. **Self-hosted web (any OS, including Linux):** set the variables on the server; the address must be reachable from the server, not only from your browser. `<NAME>_ENABLED=false` (for example `COMFYUI_ENABLED=false`) hides a route.
+
+1. **Text:** `ollama pull qwen3:8b`, or `ollama pull gemma3` for image references. In **AI settings → AI Text Model** choose **Local model (Ollama / LM Studio)**, pick the installed model and save. Pick Ollama or LM Studio in **Provider routing**. Without any cloud key, Auto also sends Opus / GPT / Gemini text tasks to the local server. YouTube footage itself is still read by Gemini.
+2. **Images:** choose **Local · Stable Diffusion / ComfyUI** as the image model. In **AI settings → Local models** pick a checkpoint (empty = first installed). References become an img2img source; for **Edit area** the selection is composited back onto the original.
+3. **Custom ComfyUI workflows (Flux, SD3, Wan, LTX-Video, …):** in ComfyUI use **Save (API Format)** and put the `.json` file in the workflows folder: `comfyui-workflows` inside the app's data folder on desktop (shown in Local models), or `COMFYUI_WORKFLOWS_DIR` on a server. Write placeholders as values: `{{prompt}}`, `{{negative_prompt}}`, `{{width}}`, `{{height}}`, `{{seed}}`, `{{steps}}`, `{{cfg}}`, `{{denoise}}`, `{{checkpoint}}`, `{{image}}` (uploaded reference), `{{frames}}`, `{{fps}}`, `{{duration}}`. A value that is exactly a placeholder keeps its number type.
+4. **Video:** choose **Local · ComfyUI workflow** and a video workflow in Local models. The finished file (mp4, webm, gif or animated webp) is saved to your gallery.
+
+Optional tuning: `OLLAMA_MODEL` / `LOCAL_OPENAI_MODEL` (default text model), `OLLAMA_NUM_CTX` (context, default 16384), `LOCAL_IMAGE_STEPS` (25), `LOCAL_IMAGE_CFG` (6), `LOCAL_IMAGE_DENOISE` (0.6), `LOCAL_NEGATIVE_PROMPT`, `LOCAL_VIDEO_FPS` (16). Small text models may miss Brainstorm's JSON format; choose a larger one if ideas are rejected. Local jobs share the 250-second image limit; use a faster model or lower resolution on slow hardware.
 
 ## Video differences
 
@@ -80,7 +91,7 @@ For YouTube, create/select your own Google Cloud project, enable **YouTube Data 
 | You want… | Add and select… |
 | --- | --- |
 | One AI billing account for images + text + supported video | OpenRouter; choose GPT Image / Nano images, Opus/GPT/Gemini text and supported Seedance modes |
-| Free prompt writing on your own computer | Ollama; select Local model (Ollama) as the text model, plus any image/video provider |
+| Everything free on your own computer | Ollama + SD WebUI or ComfyUI; select the Local text, image and video models |
 | Only images and video, writing prompts yourself | fal.ai; GPT Image / Nano, Seedance or H3 Max; no text key needed |
 | Nano images + Gemini Enhance / Brainstorm | Gemini key; select Gemini 3.8 Flash as the text model |
 | Direct GPT images + GPT text | OpenAI key; GPT Image 2.5 + GPT-6.1 Sol |

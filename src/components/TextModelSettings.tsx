@@ -6,6 +6,7 @@ import { OLLAMA_TEXT_MODEL, OPENAI_TEXT_MODEL, getOllamaModel, setOllamaModel, g
 import { DEFAULT_OPENAI_REASONING, OPENAI_REASONING_EFFORTS, type OpenAIReasoningEffort } from '../lib/prompts/openaiText';
 import { DEFAULT_OPENROUTER_REASONING, OPENROUTER_TEXT_MODEL, OPENROUTER_REASONING_EFFORTS } from '../lib/prompts/openrouterText';
 import { listOllamaModels, type OllamaModels } from '../services/ollamaService';
+import { useProviderRoute } from './ProviderRoutingSettings';
 import { loadTextPreferences, saveTextPreferences, type SavedTextPreferences, type TextPreferenceScope } from '../services/textPreferencesService';
 
 export const TextModelSettings: React.FC = () => {
@@ -17,7 +18,9 @@ export const TextModelSettings: React.FC = () => {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [reload, setReload] = useState(0);
-  const [localModel, setLocalModel] = useState(getOllamaModel);
+  const localServer = useProviderRoute(OLLAMA_TEXT_MODEL).provider === 'openaicompat' ? 'openaicompat' : 'ollama';
+  const [localModel, setLocalModel] = useState(() => getOllamaModel(localServer));
+  useEffect(() => { setLocalModel(getOllamaModel(localServer)); }, [localServer]);
   const [installed, setInstalled] = useState<OllamaModels | null>(null);
   const [installedError, setInstalledError] = useState('');
   const [installedReload, setInstalledReload] = useState(0);
@@ -26,10 +29,10 @@ export const TextModelSettings: React.FC = () => {
     if (!local) return;
     const controller = new AbortController();
     setInstalledError('');
-    listOllamaModels(controller.signal).then(setInstalled)
+    listOllamaModels(controller.signal, localServer).then(setInstalled)
       .catch(error => { if (!controller.signal.aborted) { setInstalled(null); setInstalledError(error instanceof Error ? error.message : 'Ollama is unavailable.'); } });
     return () => controller.abort();
-  }, [local, installedReload]);
+  }, [local, installedReload, localServer]);
   const apply = (value: SavedTextPreferences) => {
     setSaved(value); setSelectedModel(value.preferredModel || value.model); setThinkingLevel(value.thinkingLevel); setReasoningEffort(value.reasoningEffort);
   };
@@ -44,7 +47,7 @@ export const TextModelSettings: React.FC = () => {
   const save = async (scope: TextPreferenceScope) => {
     setBusy(scope); setError(''); setMessage('');
     try {
-      if (local) setOllamaModel(localModel);
+      if (local) setOllamaModel(localModel, localServer);
       apply(await saveTextPreferences(scope, { model: selectedModel, thinkingLevel, reasoningEffort }));
       setMessage(isLocalWorkspace() ? 'Saved on this computer. New requests will use these settings.' : scope === 'all' ? 'Saved for all users. New requests will use these settings.' : 'Saved for your account on all devices.');
     } catch (error) { setError(error instanceof Error ? error.message : 'Unable to save settings.'); }
@@ -84,7 +87,7 @@ export const TextModelSettings: React.FC = () => {
       {local && (
         <div className="mt-4 text-sm text-gray-300">
           <div className="flex items-center justify-between gap-2">
-            <label htmlFor="ollama-model">Installed Ollama model</label>
+            <label htmlFor="ollama-model">Installed model · {localServer === 'ollama' ? 'Ollama' : 'LM Studio / OpenAI-compatible'}</label>
             <button type="button" onClick={() => setInstalledReload(value => value + 1)} aria-label="Refresh Ollama models"
               className="flex items-center gap-1 rounded-lg border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:border-gray-600"><RefreshCw className="h-3 w-3" aria-hidden="true" />Refresh</button>
           </div>
@@ -93,7 +96,7 @@ export const TextModelSettings: React.FC = () => {
             <option value="">{installed?.defaultModel ? `Server default · ${installed.defaultModel}` : 'Choose a model'}</option>
             {[...new Set([...(installed?.models || []), ...(localModel ? [localModel] : [])])].map(name => <option key={name} value={name}>{name}</option>)}
           </select>
-          <span className="mt-2 block text-xs leading-relaxed text-gray-500">Saved on this device. Install models with <code>ollama pull qwen3:8b</code> (text) or <code>ollama pull gemma3</code> (text + image references). Larger models follow Brainstorm formats more reliably.</span>
+          <span className="mt-2 block text-xs leading-relaxed text-gray-500">Saved on this device. Install models with <code>ollama pull qwen3:8b</code> (text) or <code>ollama pull gemma3</code> (text + image references), or load one in LM Studio and start its server. Choose the server in Provider routing. Larger models follow Brainstorm formats more reliably.</span>
           {installedError && <span role="alert" className="mt-2 block text-xs text-amber-300">{installedError}</span>}
         </div>
       )}

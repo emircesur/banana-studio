@@ -19,7 +19,7 @@ import { normalizeH3MaxDraft, removeH3MaxReferenceImages, setH3MaxImageRole, typ
 import { ImageReferenceSummary } from './ImageReferenceSummary';
 import { ImageEditArea } from './ImageEditArea';
 import { getOpenAIImageOptions, getOpenAIImageSize, getSunburstReferences, getImagePromptContextKey, SUNBURST_MODEL, validateOpenAIImageOptions, validateOpenAIImageSize } from '../lib/images/openaiImage';
-import React, { useRef, useState, useEffect, useLayoutEffect } from 'react';
+import React, { useRef, useState, useEffect, useLayoutEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Sparkles, Pencil, X, Wand2, Plus, Minus, Loader2, ImagePlus, ChevronDown, ChevronUp, Check, Ratio, Scan, LayoutTemplate, Save, Trash2, RefreshCw, Eraser, Lightbulb, User, Users, Zap, Image as ImageIcon, Play, FileImage, FolderOpen, GripVertical, Video, Clock, Volume2, Music, Film, DollarSign, SkipForward, Rewind, FastForward, RotateCcw, AlertTriangle } from 'lucide-react';
 import { GenerationConfig, ReferenceImage, ReferenceVideo, ReferenceAudio, Template, BrainstormCategory, SavedReferenceImage, IMAGE_MODEL_OPTIONS, VIDEO_MODEL_OPTIONS, VIDEO_ASPECT_RATIO_OPTIONS, VIDEO_QUALITY_OPTIONS, VIDEO_DURATION_OPTIONS, DEFAULT_VIDEO_MODEL, GenerationMode, VideoModelId, VideoOperation, VideoPromptIntent, VideoAspectRatio, VideoQuality, VideoDuration, estimateVideoCost, getVideoPromptIntent, getPromptEnhancementTarget, isEnhancedPromptStale } from '../types';
@@ -32,6 +32,7 @@ import { createPromptPreparation } from '../lib/prompts/promptPreparation';
 import type { TextTaskStage } from '../services/geminiClient';
 import type { BrainstormGenerationRequest } from '../lib/brainstorm/brainstormGeneration';
 import { getOriginalImagePrompt } from '../lib/prompts/promptHistory';
+import { diffPrompts } from '../lib/prompts/promptDiff';
 import { updateImageDraftPrompt, validateImageGenerationReferences, getSunburstEditIntent } from '../lib/images/imagePrompting';
 import { isValidEditRegion } from '../lib/images/imageEditRegion';
 import { MAX_VIDEO_UPLOAD_BYTES, MAX_VIDEO_UPLOAD_MB } from '../lib/references/mediaUploadLimits';
@@ -403,6 +404,8 @@ export const Controls: React.FC<ControlsProps> = ({
     ? getOriginalImagePrompt(config.prompt, config.originalPrompt)
     : config.originalPrompt) ?? null;
   const [isMinimized, setIsMinimized] = useState(false);
+  const [showPromptDiff, setShowPromptDiff] = useState(false);
+  const promptDiff = useMemo(() => showPromptDiff && preEnhancePrompt !== null ? diffPrompts(preEnhancePrompt, config.prompt) : [], [showPromptDiff, preEnhancePrompt, config.prompt]);
   const lastPromptLoadRef = useRef(0);
   useLayoutEffect(() => {
     if (lastPromptLoadRef.current === promptLoadVersion) return;
@@ -587,17 +590,18 @@ export const Controls: React.FC<ControlsProps> = ({
   // Seedance 2.5 accepts up to 30 images, 10 videos and 10 audio clips. Edit
   // and Extend have one source video; keeping that constraint in the picker
   // prevents a request that the provider cannot interpret unambiguously.
-  const maxReferenceVideos = isH3VideoConfig ? (h3State.available ? h3State.capabilities.videos.max : 0) : config.videoModel === 'seedance-2.5'
+  const isLocalVideoConfig = config.mode === 'video' && config.videoModel === 'local-video';
+  const maxReferenceVideos = isLocalVideoConfig ? 0 : isH3VideoConfig ? (h3State.available ? h3State.capabilities.videos.max : 0) : config.videoModel === 'seedance-2.5'
     ? (config.videoOperation === 'edit' || config.videoOperation === 'extend' ? 1 : 10)
     : 3;
-  const maxReferenceAudios = isH3VideoConfig ? (h3State.available ? h3State.capabilities.audios.max : 0) : config.videoModel === 'seedance-2.5' ? 10 : 3;
+  const maxReferenceAudios = isLocalVideoConfig ? 0 : isH3VideoConfig ? (h3State.available ? h3State.capabilities.audios.max : 0) : config.videoModel === 'seedance-2.5' ? 10 : 3;
   const seedanceFrameOnly = config.videoModel === 'seedance-2.5'
     && (config.videoOperation || 'generate') === 'generate'
     && currentReferenceVideos.length === 0
     && currentReferenceAudios.length === 0
     && (config.referenceImages || []).length > 0
     && (config.referenceImages || []).some(image => image.isFirstFrame || image.isLastFrame);
-  const maxReferenceImages = isH3VideoConfig
+  const maxReferenceImages = isLocalVideoConfig ? 1 : isH3VideoConfig
     ? h3State.imageLimit
     : config.mode === 'video' && config.videoModel === 'seedance-2.5'
       ? (seedanceFrameOnly ? 2 : 30)
@@ -615,7 +619,7 @@ export const Controls: React.FC<ControlsProps> = ({
       ? 'Seedance 2.5 Relaxed'
       : model === 'minimax-h3'
         ? 'MiniMax H3 Max'
-        : 'Video';
+        : model === 'local-video' ? 'Local video' : 'Video';
   const formatVideoOperation = (operation?: VideoPromptIntent) => operation === 'reference_edit'
     ? 'Ref Edit'
     : operation === 'edit'
@@ -1822,7 +1826,7 @@ export const Controls: React.FC<ControlsProps> = ({
       videoAspectRatio: input === 'frames' && providerRoute.provider !== 'openrouter' ? 'adaptive' : current.videoAspectRatio,
     }));
   };
-  const videoOperationOptions = (selectedVideoModel === 'seedance-2.0'
+  const videoOperationOptions = (selectedVideoModel === 'local-video' ? [{ label: 'Generate', value: 'generate' }] : selectedVideoModel === 'seedance-2.0'
     ? [
         { label: 'Generate', value: 'generate' },
         { label: 'Ref Edit', value: 'reference_edit' },
@@ -1877,7 +1881,7 @@ export const Controls: React.FC<ControlsProps> = ({
   const requiresSourceVideo = isVideoMode && selectedVideoModel !== 'minimax-h3' && selectedVideoOperation !== 'generate';
   const h3InputError = isH3VideoConfig ? getH3MaxInputError(config) : null;
   const isSunburst = config.imageModel === SUNBURST_MODEL;
-  const routeInputError = providerRoute.error || (config.mode === 'video' && selectedVideoModel !== 'minimax-h3' && providerRoute.provider ? seedanceProviderError(providerRoute.provider, { videoModel: selectedVideoModel, mode: selectedVideoOperation === 'edit' ? 'video_edit' : selectedVideoOperation === 'extend' ? 'video_extend' : hasSeedanceFrameRoles ? 'image_to_video' : config.referenceImages.length || currentReferenceVideos.length || currentReferenceAudios.length ? 'reference_to_video' : 'text_to_video', duration: selectedVideoOperation === 'edit' ? -1 : config.videoDuration, quality: config.videoQuality, aspectRatio: config.videoAspectRatio, imageUrls: config.referenceImages.map(() => ''), videoUrls: currentReferenceVideos.map(() => ''), audioUrls: currentReferenceAudios.map(() => ''), referenceEditMode: selectedVideoOperation === 'reference_edit' }) : undefined);
+  const routeInputError = providerRoute.error || (config.mode === 'video' && selectedVideoModel !== 'minimax-h3' && selectedVideoModel !== 'local-video' && providerRoute.provider ? seedanceProviderError(providerRoute.provider, { videoModel: selectedVideoModel, mode: selectedVideoOperation === 'edit' ? 'video_edit' : selectedVideoOperation === 'extend' ? 'video_extend' : hasSeedanceFrameRoles ? 'image_to_video' : config.referenceImages.length || currentReferenceVideos.length || currentReferenceAudios.length ? 'reference_to_video' : 'text_to_video', duration: selectedVideoOperation === 'edit' ? -1 : config.videoDuration, quality: config.videoQuality, aspectRatio: config.videoAspectRatio, imageUrls: config.referenceImages.map(() => ''), videoUrls: currentReferenceVideos.map(() => ''), audioUrls: currentReferenceAudios.map(() => ''), referenceEditMode: selectedVideoOperation === 'reference_edit' }) : undefined);
   const canGenerate = !routeInputError && !isDraftLoading && (isVideoMode
     ? uploadingReferenceVideos === 0 && !hasStaleEnhancedPrompt && (isH3VideoConfig ? !h3InputError : config.prompt.trim().length > 0 && (!requiresSourceVideo || (config.referenceVideos?.length || 0) > 0))
     : !isBrainstormActive && !sunburstError && !hasStaleEnhancedPrompt && (config.prompt.trim().length > 0 || (!isSunburst && config.referenceImages.length > 0)));
@@ -1958,7 +1962,7 @@ export const Controls: React.FC<ControlsProps> = ({
     ? config.referenceVideos[0].duration!
     : 0;
   const videoCost = isVideoMode
-    ? selectedVideoModel === 'minimax-h3' ? estimateH3MaxCost(config) : providerRoute.provider !== 'evolink' ? null : estimateVideoCost(
+    ? selectedVideoModel === 'minimax-h3' ? estimateH3MaxCost(config) : selectedVideoModel === 'local-video' ? { usd: 0, source: 'published_estimate' as const } : providerRoute.provider !== 'evolink' ? null : estimateVideoCost(
         selectedVideoModel,
         config.videoQuality,
         selectedVideoOperation === 'edit' ? -1 : config.videoDuration,
@@ -2534,6 +2538,19 @@ export const Controls: React.FC<ControlsProps> = ({
           {modelInputError && <p role={sunburstError ? 'alert' : 'status'} className="px-1 text-xs leading-5 text-amber-300">{modelInputError}</p>}
           {generationError && generationError !== modelInputError && <p role="alert" className="px-1 text-xs leading-5 text-red-400">{generationError}</p>}
           {attachmentError && <div role="alert" className="flex items-start justify-between gap-3 px-1 text-xs leading-5 text-red-400"><span className="whitespace-pre-line">{attachmentError}</span><button type="button" aria-label="Dismiss attachment message" onClick={() => setAttachmentError(null)} className="shrink-0 rounded p-1 text-gray-400 hover:text-white"><X className="h-3.5 w-3.5" /></button></div>}
+        {showPromptDiff && preEnhancePrompt !== null && (
+          <div className="rounded-xl border border-white/[0.07] bg-[#11161d] px-3.5 py-3" aria-label="Changes from your original prompt">
+            <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-gray-400">
+              <span><span className="text-red-300 line-through">removed</span> · <span className="text-emerald-300">added</span> since your original prompt</span>
+              <button type="button" aria-label="Close changes" onClick={() => setShowPromptDiff(false)} className="rounded p-1 hover:text-white"><X className="h-3.5 w-3.5" /></button>
+            </div>
+            <p className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-5 text-gray-300">
+              {promptDiff.map((part, index) => part.type === 'same' ? <span key={index}>{part.text}</span>
+                : part.type === 'added' ? <ins key={index} className="rounded-sm bg-emerald-500/15 text-emerald-200 no-underline">{part.text}</ins>
+                : <del key={index} className="rounded-sm bg-red-500/10 text-red-300/80">{part.text}</del>)}
+            </p>
+          </div>
+        )}
         {hasStaleEnhancedPrompt && (
           <div className="flex flex-col gap-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.08] px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between" role="alert">
             <div className="flex min-w-0 items-start gap-2.5">
@@ -2871,7 +2888,7 @@ export const Controls: React.FC<ControlsProps> = ({
                     className={`px-2.5 h-full flex items-center gap-1 text-xs font-semibold transition-colors ${
                       isVideoMode ? 'rounded-lg bg-violet-600 text-white shadow-sm' : 'rounded-lg text-gray-400 hover:bg-white/[0.05] hover:text-white'
                     }`}
-                    title={`Video Generation (${selectedVideoModel === 'seedance-2.0' ? 'Seedance 2.0' : selectedVideoModel === 'seedance-2.5' ? providerRoute.provider === 'evolink' ? 'Seedance 2.5 Relaxed' : 'Seedance 2.5' : 'MiniMax H3 Max'})`}
+                    title={`Video Generation (${selectedVideoModel === 'seedance-2.0' ? 'Seedance 2.0' : selectedVideoModel === 'seedance-2.5' ? providerRoute.provider === 'evolink' ? 'Seedance 2.5 Relaxed' : 'Seedance 2.5' : formatVideoModel(selectedVideoModel)})`}
                     aria-label="Video generation"
                     aria-pressed={isVideoMode}
                   >
@@ -2923,6 +2940,12 @@ export const Controls: React.FC<ControlsProps> = ({
                   >
                     <RotateCcw className="w-4 h-4" />
                     <span>Revert</span>
+                  </button>
+                )}
+                {preEnhancePrompt !== null && preEnhancePrompt !== config.prompt && (
+                  <button type="button" onClick={() => setShowPromptDiff(value => !value)} aria-pressed={showPromptDiff}
+                    aria-label="Show changes from the original prompt" title="Compare the enhanced prompt with your original" className={PROMPT_REVERT_CLASS}>
+                    <span>Changes</span>
                   </button>
                 )}
                 <button

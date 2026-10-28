@@ -2,6 +2,7 @@ import { DEFAULT_TEXT_MODEL, TEXT_MODEL_OPTIONS, type TextModelId } from '../../
 import { DEFAULT_OPENAI_REASONING, isOpenAIReasoningEffort, type OpenAIReasoningEffort } from './openaiText.js';
 import { DEFAULT_OPENROUTER_REASONING, OPENROUTER_TEXT_MODEL } from './openrouterText.js';
 import { OLLAMA_MODEL_STORAGE_KEY, isOllamaModelName } from './ollamaText.js';
+import { isLocalAssetName } from '../localModels.js';
 
 export { OPENAI_TEXT_MODEL, calculateOpenAITextCost } from './openaiText.js';
 export { OPENROUTER_TEXT_MODEL, calculateOpenRouterTextCost } from './openrouterText.js';
@@ -74,17 +75,20 @@ export const setOpenAIReasoningEffort = (value: OpenAIReasoningEffort): void => 
   try { localStorage.setItem(OPENAI_REASONING_STORAGE_KEY, value); } catch { /* Best effort. */ }
 };
 
-/** Empty means the server's OLLAMA_MODEL default. */
-export const getOllamaModel = (): string => {
+export type LocalTextServer = 'ollama' | 'openaicompat';
+const localTextKey = (server: LocalTextServer) => server === 'ollama' ? OLLAMA_MODEL_STORAGE_KEY : 'banana-openaicompat-model';
+const isLocalTextModel = (server: LocalTextServer, value: unknown): value is string => server === 'ollama' ? isOllamaModelName(value) : isLocalAssetName(value);
+/** Empty means the server's OLLAMA_MODEL / LOCAL_OPENAI_MODEL default. Each server keeps its own choice. */
+export const getOllamaModel = (server: LocalTextServer = 'ollama'): string => {
   try {
-    const value = localStorage.getItem(OLLAMA_MODEL_STORAGE_KEY);
-    if (isOllamaModelName(value)) return value;
+    const value = localStorage.getItem(localTextKey(server));
+    if (isLocalTextModel(server, value)) return value;
   } catch { /* Storage may be unavailable. */ }
   return '';
 };
-export const setOllamaModel = (value: string): void => {
+export const setOllamaModel = (value: string, server: LocalTextServer = 'ollama'): void => {
   try {
-    if (!value) localStorage.removeItem(OLLAMA_MODEL_STORAGE_KEY);
-    else if (isOllamaModelName(value)) localStorage.setItem(OLLAMA_MODEL_STORAGE_KEY, value);
+    if (!value) localStorage.removeItem(localTextKey(server));
+    else if (isLocalTextModel(server, value)) localStorage.setItem(localTextKey(server), value);
   } catch { /* Best effort. */ }
 };

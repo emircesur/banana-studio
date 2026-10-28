@@ -4,9 +4,12 @@ import fs from 'node:fs';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { MODEL_ROUTES, resolveProvider } from '../src/lib/providers.ts';
-import { buildOllamaChat, inlineSchemaRefs, isOllamaModelName, ollamaBaseUrl, ollamaContextSize } from '../src/lib/prompts/ollamaText.ts';
-import { buildBrainstormOutputFormat } from '../api/_lib/textOutputFormats.ts';
 
+// src/lib modules use bundler-style .js specifiers; esbuild resolves them to the .ts sources.
+const helpers = await build({ stdin: { contents: `export * from './src/lib/prompts/ollamaText.ts'; export { buildBrainstormOutputFormat } from './api/_lib/textOutputFormats.ts';`,
+  resolveDir: fileURLToPath(new URL('..', import.meta.url)), loader: 'ts' }, bundle: true, write: false, format: 'esm', platform: 'node' });
+const { buildOllamaChat, buildOpenAICompatibleChat, inlineSchemaRefs, isOllamaModelName, ollamaBaseUrl, ollamaContextSize, buildBrainstormOutputFormat } =
+  await import('data:text/javascript;base64,' + Buffer.from(helpers.outputFiles[0].text).toString('base64'));
 const tempFile = fileURLToPath(new URL('./.temp-ollama-text.mjs', import.meta.url));
 await build({
   entryPoints: [fileURLToPath(new URL('../api/ollama-text-generate.ts', import.meta.url))],
@@ -35,10 +38,10 @@ const withFetch = async (impl, run) => {
 const request = (body, method = 'POST') => ({ method, headers: {}, body });
 
 test('local model routes only to Ollama and needs no paid key', () => {
-  assert.deepEqual(MODEL_ROUTES['ollama/local'], ['ollama']);
+  assert.deepEqual(MODEL_ROUTES['ollama/local'], ['ollama', 'openaicompat']);
   assert.equal(resolveProvider('ollama/local', 'auto', { ollama: true, openrouter: true }), 'ollama');
   assert.throws(() => resolveProvider('ollama/local', 'openrouter', { openrouter: true }));
-  assert.throws(() => resolveProvider('ollama/local', 'auto', { openrouter: true }), /keys?/);
+  assert.throws(() => resolveProvider('ollama/local', 'auto', { openrouter: true }), /OLLAMA_BASE_URL/);
 });
 
 test('Ollama address: desktop default, hosted opt-in, kill switch and unsafe URLs', () => {

@@ -1,7 +1,9 @@
 // Server-safe definitions for local text models served by Ollama.
 // https://docs.ollama.com/api/chat
+import { LOCAL_SERVERS, localServerUrl } from '../localModels.js';
+
 export const OLLAMA_TEXT_MODEL = 'ollama/local' as const;
-export const OLLAMA_DEFAULT_URL = 'http://127.0.0.1:11434';
+export const OLLAMA_DEFAULT_URL = LOCAL_SERVERS.ollama.defaultUrl;
 export const OLLAMA_DEFAULT_CONTEXT = 16384;
 /** The installed model is a device choice: Ollama runs next to the workspace, not in the account. */
 export const OLLAMA_MODEL_STORAGE_KEY = 'banana-ollama-model';
@@ -10,16 +12,7 @@ export const isOllamaModelName = (value: unknown): value is string =>
   typeof value === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,127}$/.test(value);
 
 /** Desktop defaults to the local daemon; hosted installs opt in with OLLAMA_BASE_URL. */
-export const ollamaBaseUrl = (env: Record<string, string | undefined>): string | null => {
-  if (env.OLLAMA_ENABLED === 'false') return null;
-  const value = env.OLLAMA_BASE_URL?.trim() || (env.BANANA_RUNTIME === 'local' ? OLLAMA_DEFAULT_URL : '');
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
-    return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
-  } catch { return null; }
-};
+export const ollamaBaseUrl = (env: Record<string, string | undefined>): string | null => localServerUrl('ollama', env);
 
 export const ollamaContextSize = (value: unknown): number => {
   const size = Number(value);
@@ -49,6 +42,17 @@ export const buildOllamaChat = (input: { model: string; system: string; parts: C
     messages: [{ role: 'system', content: input.system }, { role: 'user', content: text, ...(images.length ? { images } : {}) }],
     ...(input.schema ? { format: inlineSchemaRefs(input.schema) } : {}),
     options: { num_ctx: input.numCtx },
+  };
+};
+
+/** OpenAI-compatible servers (LM Studio, llama.cpp, vLLM) take content parts and json_schema output. */
+export const buildOpenAICompatibleChat = (input: { model: string; system: string; parts: ChatPart[]; schema?: unknown }, name = 'result') => {
+  const content = input.parts.map(part => typeof part.text === 'string' ? { type: 'text', text: part.text }
+    : { type: 'image_url', image_url: { url: `data:${(part.inlineData as any)?.mimeType || 'image/png'};base64,${part.inlineData?.data}` } });
+  return {
+    model: input.model, stream: false,
+    messages: [{ role: 'system', content: input.system }, { role: 'user', content }],
+    ...(input.schema ? { response_format: { type: 'json_schema', json_schema: { name, strict: true, schema: inlineSchemaRefs(input.schema) } } } : {}),
   };
 };
 

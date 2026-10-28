@@ -367,7 +367,9 @@ const CATEGORY_DIRECTION: Record<BrainstormCategory, string> = {
 
 const CHANNEL_BANNER_DIRECTION = 'Create channel banner concepts following the stated brief and selected canvas. An old banner used as an example supplies only the roles requested by the brief; replacing it does not require preserving its text treatment, reflections, layout or colors. Include every required experience or scene in each complete concept, rather than choosing a subset. If the same person appears in multiple adventures, keep the same identity in every appearance. Do not apply video-thumbnail duration-overlay clearance or invent a video hook or slogan.';
 
-const getImagePromptTargetName = (settings: ImagePromptSettings): string => settings.imageModel === 'gpt-image-2.5-sunburst'
+const getImagePromptTargetName = (settings: ImagePromptSettings): string => settings.imageModel === 'local-image'
+  ? 'a local Stable Diffusion model (it reads roughly the first 75 words best: lead with subject, style, lighting and camera as compact visual phrases)'
+  : settings.imageModel === 'gpt-image-2.5-sunburst'
   ? 'GPT Image 2.5 Sunburst' : settings.imageModel === 'gemini-nano-banana-2.1' ? 'Nano Banana 2.1'
     : settings.imageModel === 'gemini-3.1-flash-image-preview' ? 'Nano Banana 2' : 'Nano Banana Pro';
 

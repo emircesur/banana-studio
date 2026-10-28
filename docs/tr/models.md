@@ -21,7 +21,7 @@ Kabul edilen görsel işi, sayfa yenilense veya uygulama yeniden açılsa da sa�
 | Opus 5.5 — varsayılan yaratıcı model, Medium | OpenRouter | `OPENROUTER_API_KEY` |
 | GPT-6.1 Sol — Enhance, Brainstorm, varyasyon | OpenAI → OpenRouter | `OPENAI_API_KEY` / `OPENROUTER_API_KEY` |
 | Gemini 3.8 Flash — metin ve video analizi | Google Gemini → OpenRouter | `GEMINI_API_KEY` / `OPENROUTER_API_KEY` |
-| Yerel model (Ollama) — Enhance, Brainstorm, varyasyon, video özeti | Ollama | Anahtar gerekmez. Masaüstü `http://127.0.0.1:11434` kullanır; web kurulumu `OLLAMA_BASE_URL` ister |
+| Yerel metin / görsel / video — bkz. [Yerel modeller](#yerel-modeller-anahtar-yok-kredi-yok) | Ollama / LM Studio · SD WebUI → ComfyUI · ComfyUI | Anahtar gerekmez. Masaüstü varsayılan yerel adresleri kullanır; web `*_BASE_URL` ister |
 | Seedance 2.0 / 2.5 | EvoLink → fal.ai → OpenRouter | `EVOLINK_API_KEY` / `FAL_KEY` / `OPENROUTER_API_KEY` |
 | H3 Max — Text/Image/Reference to Video, Extend, Lip Sync, Recast | fal.ai | `FAL_KEY` |
 | Gerektiğinde video referansı ön işlemi | fal.ai | `FAL_KEY` |
@@ -31,15 +31,26 @@ Kabul edilen görsel işi, sayfa yenilense veya uygulama yeniden açılsa da sa�
 
 Düşünme seviyesi AI settings'ten seçilir. Yalnızca fal.ai anahtarı Enhance/Brainstorm açmaz; artık desteklenmeyen Any LLM bağlantısını kullanmıyoruz. Anthropic anahtarı OpenRouter anahtarı değildir. Anahtarın model erişimi ve API bakiyesi bulunmalıdır.
 
-## Ollama ile yerel metin modelleri
+## Yerel modeller (anahtar yok, kredi yok)
 
-Enhance, Brainstorm, varyasyonlar ve son YouTube özeti sağlayıcı kredisi harcamadan kendi bilgisayarında çalışır. Görsel ve video üretimi yukarıdaki sağlayıcılarla devam eder.
+Metin, görsel ve video kendi bilgisayarındaki veya ağındaki sunucularda çalışabilir. Görsel ve video kalitesi kurduğun modele bağlıdır; uygulamanın korumalı alan editi, seçimin dışındaki pikselleri yine değiştirmez.
 
-1. [Ollama](https://ollama.com/download) kur ve bir model indir: metin için `ollama pull qwen3:8b`, görsel referans kullanıyorsan `ollama pull gemma3`.
-2. **AI settings → AI Text Model** içinde **Local model (Ollama)** seç, kurulu modeli seçip kaydet. Model seçimi bu cihazda saklanır.
-3. Masaüstü uygulama `http://127.0.0.1:11434` adresine kendiliğinden bağlanır. Kendi sunucundaki web kurulumu `OLLAMA_BASE_URL` (sunucudan erişilebilir olmalı), isteğe bağlı `OLLAMA_MODEL` (varsayılan model) ve `OLLAMA_NUM_CTX` (bağlam penceresi, varsayılan 16384) ile açılır. `OLLAMA_ENABLED=false` bu bağlantıyı kapatır.
+| Özellik | Uygulamadaki model | Yerel sunucu · varsayılan adres | Sunucu değişkeni |
+| --- | --- | --- | --- |
+| Enhance, Brainstorm, varyasyon, video özeti | Local model (Ollama / LM Studio) | Ollama · `http://127.0.0.1:11434` | `OLLAMA_BASE_URL` |
+| | | LM Studio, llama.cpp, vLLM, LocalAI · `http://127.0.0.1:1234/v1` | `LOCAL_OPENAI_BASE_URL` |
+| Görsel, referans, alan editi | Local · Stable Diffusion / ComfyUI | AUTOMATIC1111 / Forge / SD.Next (`--api` ile başlat) · `http://127.0.0.1:7860` | `SDWEBUI_BASE_URL` |
+| | | ComfyUI · `http://127.0.0.1:8188` | `COMFYUI_BASE_URL` |
+| Video (metin veya tek görsel) | Local · ComfyUI workflow | ComfyUI | `COMFYUI_BASE_URL` |
 
-YouTube videosunu yine Gemini okur; yerel model son özeti bu gözlemlerden yazar. Küçük modeller Brainstorm'un JSON biçimini tutturamayabilir; fikirler reddedilirse daha büyük bir model seç.
+**Masaüstü (macOS, Windows):** uygulama varsayılan adreslere kendiliğinden bağlanır; sunucuyu başlat ve modeli seç. **Kendi sunucunda web (Linux dahil her işletim sistemi):** değişkenleri sunucuda tanımla; adres yalnızca tarayıcından değil, sunucudan erişilebilir olmalı. `<AD>_ENABLED=false` (ör. `COMFYUI_ENABLED=false`) bağlantıyı gizler.
+
+1. **Metin:** `ollama pull qwen3:8b`, görsel referans için `ollama pull gemma3`. **AI settings → AI Text Model** içinde **Local model (Ollama / LM Studio)** seç, kurulu modeli seçip kaydet. Ollama veya LM Studio'yu **Provider routing** içinde seç. Hiç bulut anahtarı yoksa Auto, Opus / GPT / Gemini metin işlerini de yerel sunucuya gönderir. YouTube videosunu yine Gemini okur.
+2. **Görsel:** görsel modeli olarak **Local · Stable Diffusion / ComfyUI** seç. **AI settings → Local models** içinde checkpoint seç (boş = ilk kurulu model). Referanslar img2img kaynağı olur; **Edit area** seçimi orijinalin üzerine yerleştirilir.
+3. **Özel ComfyUI workflow'ları (Flux, SD3, Wan, LTX-Video, …):** ComfyUI'de **Save (API Format)** ile kaydet ve `.json` dosyasını workflow klasörüne koy: masaüstünde uygulama veri klasöründeki `comfyui-workflows` (Local models'ta gösterilir), sunucuda `COMFYUI_WORKFLOWS_DIR`. Değer olarak yer tutucu yaz: `{{prompt}}`, `{{negative_prompt}}`, `{{width}}`, `{{height}}`, `{{seed}}`, `{{steps}}`, `{{cfg}}`, `{{denoise}}`, `{{checkpoint}}`, `{{image}}` (yüklenen referans), `{{frames}}`, `{{fps}}`, `{{duration}}`. Tam olarak yer tutucudan oluşan değer sayı tipini korur.
+4. **Video:** **Local · ComfyUI workflow** seç ve Local models'ta bir video workflow'u seç. Biten dosya (mp4, webm, gif veya animasyonlu webp) galerine kaydedilir.
+
+İsteğe bağlı ayarlar: `OLLAMA_MODEL` / `LOCAL_OPENAI_MODEL` (varsayılan metin modeli), `OLLAMA_NUM_CTX` (bağlam, varsayılan 16384), `LOCAL_IMAGE_STEPS` (25), `LOCAL_IMAGE_CFG` (6), `LOCAL_IMAGE_DENOISE` (0.6), `LOCAL_NEGATIVE_PROMPT`, `LOCAL_VIDEO_FPS` (16). Küçük metin modelleri Brainstorm JSON biçimini tutturamayabilir; fikirler reddedilirse daha büyük model seç. Yerel işler de 250 saniyelik görsel sınırına tabidir; yavaş donanımda daha hızlı model veya düşük çözünürlük kullan.
 
 ## Video farkları
 

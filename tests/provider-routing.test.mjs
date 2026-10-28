@@ -22,7 +22,7 @@ test('every key combination selects only a configured route for the same model',
     for(const [model,routes] of Object.entries(MODEL_ROUTES)){
       const expected=routes.find(provider=>available[provider]);
       if(expected)assert.equal(resolveProvider(model,'auto',available),expected);
-      else assert.throws(()=>resolveProvider(model,'auto',available),/key|keys/);
+      else assert.throws(()=>resolveProvider(model,'auto',available),/key|keys|_BASE_URL/);
       for(const provider of providers){
         if(routes.includes(provider)&&available[provider])assert.equal(resolveProvider(model,provider,available),provider);
         else assert.throws(()=>resolveProvider(model,provider,available));
