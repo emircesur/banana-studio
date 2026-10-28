@@ -770,7 +770,7 @@ const cleanPromptForVideoModel = (
   cleaned = cleaned.replace(/@PERSON_(\d+)\b/gi, (_tag, number) => {
     const id = Number(number);
     const group = getPersonGroups(refs).find(person => person.id === id);
-    if (!group) throw new Error(`Person ${id} için ekli referans yok.`);
+    if (!group) throw new Error(`Person ${id} has no attached reference.`);
     return `person ${id} shown in ${group.images.map(image => `@image${refs.indexOf(image) + 1}`).join(' and ')} (the SAME single person)`;
   });
   if (getPersonGroups(refs).some(group => group.id > 2)) cleaned += `\n${buildPersonIdentityContract(refs, index => `@image${index + 1}`)}`;
@@ -871,7 +871,8 @@ const createLocalVideoTask = async (config: GenerationConfig, initiatingUserId?:
   if (image && !imageUrl) throw new Error('The reference image could not be loaded. Restore it before generating.');
   const response = await fetch('/api/local-video', { method: 'POST', headers: await getServerAuthHeaders(initiatingUserId),
     body: JSON.stringify({ provider, videoModel: LOCAL_VIDEO_MODEL, prompt: config.prompt, duration: config.videoDuration, quality: config.videoQuality,
-      aspectRatio: config.videoAspectRatio, imageUrls: imageUrl ? [imageUrl] : [], localWorkflow: workflow, localModel: getLocalChoice('videoModel') || undefined }) });
+      aspectRatio: config.videoAspectRatio, imageUrls: imageUrl ? [imageUrl] : [], localWorkflow: workflow, localModel: getLocalChoice('videoModel') || undefined,
+      localNegativePrompt: config.localNegativePrompt?.trim() || undefined }) });
   const data = await response.json().catch(() => null);
   if (!response.ok || !data?.taskId) throw new Error(data?.error || 'ComfyUI could not start the video.');
   return { taskId: data.taskId as string, endpoint: typeof data.endpoint === 'string' ? data.endpoint : undefined, queueEndpoint: undefined,

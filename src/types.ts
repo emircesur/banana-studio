@@ -465,6 +465,10 @@ export interface PromptPreparation {
 
 export interface GenerationConfig {
   imageProvider?: import('./lib/providers.js').AIProvider;
+  /** Local image model only: fixed seed (empty = random), negative prompt, or an upscale job. */
+  localSeed?: number;
+  localNegativePrompt?: string;
+  localUpscale?: 2 | 4;
   prompt: string;
   /** Brief before Enhance or Brainstorm, retained for Revert/Re-create. */
   originalPrompt?: string;
@@ -566,6 +570,9 @@ export const isEnhancedPromptStale = (config: GenerationConfig): boolean => Bool
 
 export interface GeneratedMedia {
   generationProvider?: import('./lib/providers.js').AIProvider;
+  localSeed?: number;
+  localNegativePrompt?: string;
+  localUpscale?: 2 | 4;
   providerModel?: string;
   id: string;
   url: string;

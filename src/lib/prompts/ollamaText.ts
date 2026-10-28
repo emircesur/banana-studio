@@ -57,8 +57,8 @@ export const buildOpenAICompatibleChat = (input: { model: string; system: string
 };
 
 export const ollamaErrorMessage = (status?: number, detail?: string): string => {
-  if (status === 404) return 'Ollama modeli bulunamadı. `ollama pull <model>` ile indirip AI settings içinden seç.';
-  if (detail && /image|vision|multimodal/i.test(detail)) return 'Seçili yerel model görsel referansları desteklemiyor. Vision destekli bir model seç (ör. gemma3, qwen2.5vl).';
-  if (status === 400) return 'Ollama bu isteği kabul etmedi. Modeli ve prompt uzunluğunu kontrol et.';
-  return 'Ollama\'ya ulaşılamadı. Ollama\'nın çalıştığını (`ollama serve`) ve adresin doğru olduğunu kontrol et.';
+  if (status === 404) return 'The Ollama model was not found. Download it with `ollama pull <model>` and choose it in AI settings.';
+  if (detail && /image|vision|multimodal/i.test(detail)) return 'The selected local model does not support image references. Choose a vision model (for example gemma3 or qwen2.5vl).';
+  if (status === 400) return 'Ollama rejected this request. Check the model and prompt length.';
+  return 'Ollama could not be reached. Check that it is running (`ollama serve`) and the address is correct.';
 };

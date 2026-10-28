@@ -58,3 +58,14 @@ export const localVideoSize = (aspectRatio: string, quality: string) => {
   const long = Math.round(short * Math.max(ratio, 1 / ratio) / 16) * 16;
   return ratio >= 1 ? { width: long, height: short } : { width: short, height: long };
 };
+
+/** Shared validation for the browser-chosen local image options; null when valid. */
+export const localImageOptionsError = (body: any): string | null => {
+  if (body.localModel != null && !isLocalAssetName(body.localModel)) return 'Invalid local model.';
+  if (body.localWorkflow != null && !isWorkflowName(body.localWorkflow)) return 'Invalid local workflow.';
+  if (body.localSeed != null && !(Number.isSafeInteger(body.localSeed) && body.localSeed >= 0 && body.localSeed < 2 ** 32)) return 'The seed must be a whole number from 0 to 4294967295.';
+  if (body.localNegativePrompt != null && (typeof body.localNegativePrompt !== 'string' || body.localNegativePrompt.length > 2000)) return 'The negative prompt can have up to 2,000 characters.';
+  if (body.localUpscale != null && ![2, 4].includes(body.localUpscale)) return 'Upscale supports 2x or 4x.';
+  if ((body.localSeed != null || body.localNegativePrompt != null || body.localUpscale != null) && body.model !== LOCAL_IMAGE_MODEL) return 'These options need the local image model.';
+  return null;
+};

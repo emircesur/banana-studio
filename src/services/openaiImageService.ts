@@ -155,7 +155,8 @@ export const generateOpenAIImage = async (
             originalPrompt: config.originalPrompt, promptPreparation: normalizePromptPreparation(config.promptPreparation), youtubeSource: config.youtubeSource,
             aspectRatio: config.aspectRatio, resolution: config.resolution, imagePromptCategory: config.imagePromptCategory,
             options, referenceImages, folderId: context?.folderId,
-            ...(config.imageModel === LOCAL_IMAGE_MODEL ? { localModel: getLocalChoice('imageModel') || undefined, localWorkflow: getLocalChoice('imageWorkflow') || undefined } : {}) }),
+            ...(config.imageModel === LOCAL_IMAGE_MODEL ? { localModel: getLocalChoice('imageModel') || undefined, localWorkflow: getLocalChoice('imageWorkflow') || undefined,
+              localSeed: config.localSeed, localNegativePrompt: config.localNegativePrompt?.trim() || undefined, localUpscale: config.localUpscale } : {}) }),
         });
       } catch {
         // The enqueue transaction may have committed. Reconnect to its saved ID;

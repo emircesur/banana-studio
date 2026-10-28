@@ -49,8 +49,12 @@ Metin, görsel ve video kendi bilgisayarındaki veya ağındaki sunucularda çal
 2. **Görsel:** görsel modeli olarak **Local · Stable Diffusion / ComfyUI** seç. **AI settings → Local models** içinde checkpoint seç (boş = ilk kurulu model). Referanslar img2img kaynağı olur; **Edit area** seçimi orijinalin üzerine yerleştirilir.
 3. **Özel ComfyUI workflow'ları (Flux, SD3, Wan, LTX-Video, …):** ComfyUI'de **Save (API Format)** ile kaydet ve `.json` dosyasını workflow klasörüne koy: masaüstünde uygulama veri klasöründeki `comfyui-workflows` (Local models'ta gösterilir), sunucuda `COMFYUI_WORKFLOWS_DIR`. Değer olarak yer tutucu yaz: `{{prompt}}`, `{{negative_prompt}}`, `{{width}}`, `{{height}}`, `{{seed}}`, `{{steps}}`, `{{cfg}}`, `{{denoise}}`, `{{checkpoint}}`, `{{image}}` (yüklenen referans), `{{frames}}`, `{{fps}}`, `{{duration}}`. Tam olarak yer tutucudan oluşan değer sayı tipini korur.
 4. **Video:** **Local · ComfyUI workflow** seç ve Local models'ta bir video workflow'u seç. Biten dosya (mp4, webm, gif veya animasyonlu webp) galerine kaydedilir.
+5. **Seed ve negatif prompt:** yerel görsel modelinde üretim çubuğunda **Negative prompt** ve **Seed** (boş = rastgele) görünür. Her yerel görsel seed'ini kaydeder; **Re-create** aynı seed ile tekrarlar. Yerel video modeli de negatif prompt alır.
+6. **Alan editleri** gerçek inpaint maskesi gönderir (SD WebUI `mask`, ComfyUI `SetLatentNoiseMask`; özel workflow'lar `{{mask}}` kullanabilir); sonuç yine birleştirilir, dışarıdaki pikseller orijinal kalır.
+7. **2x / 4x büyütme:** galeride herhangi bir görseli açıp **Upscale** seç. SD WebUI extras büyütücüsünü kullanır (`LOCAL_UPSCALER`, varsayılan `R-ESRGAN 4x+`); ComfyUI `models/upscale_models` içindeki ilk modeli (veya `LOCAL_UPSCALER`), yoksa Lanczos kullanır. Sonuç galeride yeni görsel olur.
+8. Masaüstü uygulama tek GPU paylaşılmasın diye aynı anda bir yerel görsel işi çalıştırır; bulut işleri yanında çalışmaya devam eder.
 
-İsteğe bağlı ayarlar: `OLLAMA_MODEL` / `LOCAL_OPENAI_MODEL` (varsayılan metin modeli), `OLLAMA_NUM_CTX` (bağlam, varsayılan 16384), `LOCAL_IMAGE_STEPS` (25), `LOCAL_IMAGE_CFG` (6), `LOCAL_IMAGE_DENOISE` (0.6), `LOCAL_NEGATIVE_PROMPT`, `LOCAL_VIDEO_FPS` (16). Küçük metin modelleri Brainstorm JSON biçimini tutturamayabilir; fikirler reddedilirse daha büyük model seç. Yerel işler de 250 saniyelik görsel sınırına tabidir; yavaş donanımda daha hızlı model veya düşük çözünürlük kullan.
+İsteğe bağlı ayarlar: `OLLAMA_MODEL` / `LOCAL_OPENAI_MODEL` (varsayılan metin modeli), `OLLAMA_NUM_CTX` (bağlam, varsayılan 16384), `LOCAL_IMAGE_STEPS` (25), `LOCAL_IMAGE_CFG` (6), `LOCAL_IMAGE_DENOISE` (0.6), `LOCAL_INPAINT_DENOISE` (0.75), `LOCAL_NEGATIVE_PROMPT` (alan boşken varsayılan), `LOCAL_UPSCALER`, `LOCAL_VIDEO_FPS` (16). Küçük metin modelleri Brainstorm JSON biçimini tutturamayabilir; fikirler reddedilirse daha büyük model seç. Yerel işler de 250 saniyelik görsel sınırına tabidir; yavaş donanımda daha hızlı model veya düşük çözünürlük kullan.
 
 ## Video farkları
 
@@ -98,6 +102,8 @@ YouTube için kendi Google Cloud projeni oluştur/seç, **YouTube Data API v3** 
 | Mevcut ayrı servisli kurulum | Anahtarların kalabilir; Auto mevcut ana sağlayıcı varsa onu seçer, tercihini ayrıca sabitleyebilirsin |
 
 ## Maliyet ve anahtar güvenliği
+
+**AI settings → My usage** kendi kayıtlı tahminlerini bugün, 7 veya 30 gün için modele göre gösterir. **Daily spending warning** belirlediğin tutarda kırmızıya dönen bir başlık göstergesi ekler; uyarır ama isteği engellemez.
 
 Uygulamadaki tahmin sağlayıcı bakiyesi veya fatura değildir. Metin düşünmesi, referanslar, kalite, video süresi ve ön işlem ayrıca maliyete etki edebilir. Harcama sınırlarını sağlayıcılardan belirle, kullanım panellerini takip et.
 

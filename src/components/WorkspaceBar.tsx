@@ -4,6 +4,7 @@ import { TextModelSettings } from './TextModelSettings';
 import { ProviderRoutingSettings } from './ProviderRoutingSettings';
 import { LocalModelSettings, LocalServerIndicator } from './LocalModelSettings';
 import { BudgetIndicator, BudgetSettings } from './BudgetWarning';
+import { MyUsage } from './MyUsage';
 import { isLocalWorkspace } from '../lib/config/runtimeConfig';
 import type { UserProfile } from '../types';
 import { postNativeAction } from '../../desktop/shared/nativeBridge';
@@ -32,7 +33,7 @@ export function WorkspaceBar({ profile, onOpenAdmin, onSignOut }: { profile: Use
     <dialog ref={dialog} onCancel={event => { event.preventDefault(); setSettingsOpen(false); }} onClick={event => { if (event.target === event.currentTarget) setSettingsOpen(false); }} aria-labelledby="local-ai-settings" className="max-h-[85vh] w-[calc(100%-3rem)] max-w-xl overflow-y-auto rounded-2xl border border-white/10 bg-[#161b22] p-0 text-white backdrop:bg-black/75">
       <section className="p-6">
         <div className="mb-6 flex items-center justify-between"><h2 id="local-ai-settings" className="text-lg font-semibold">AI settings</h2><button autoFocus type="button" aria-label="Close AI settings" onClick={() => setSettingsOpen(false)}><X size={20} /></button></div>
-        {settingsOpen && <><TextModelSettings /><LocalModelSettings /><BudgetSettings /><ProviderRoutingSettings /></>}
+        {settingsOpen && <><TextModelSettings /><LocalModelSettings /><BudgetSettings /><MyUsage /><ProviderRoutingSettings /></>}
       </section>
     </dialog>
   </>;

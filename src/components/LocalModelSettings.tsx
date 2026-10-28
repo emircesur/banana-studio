@@ -77,7 +77,7 @@ export function LocalModelSettings() {
       hint="Required for Local · ComfyUI workflow video, e.g. Wan or LTX-Video graphs." />
     <Picker id="local-video-model" label="Video checkpoint" choice="videoModel" options={checkpoints} empty="As saved in the workflow" />
     <p className="pt-2 text-xs leading-relaxed text-gray-500">
-      Export workflows with ComfyUI’s “Save (API Format)” and use placeholders such as <code>{'{{prompt}}'}</code>, <code>{'{{width}}'}</code>, <code>{'{{height}}'}</code>, <code>{'{{seed}}'}</code>, <code>{'{{checkpoint}}'}</code>, <code>{'{{image}}'}</code>, <code>{'{{frames}}'}</code> and <code>{'{{fps}}'}</code>.
+      Export workflows with ComfyUI’s “Save (API Format)” and use placeholders such as <code>{'{{prompt}}'}</code>, <code>{'{{width}}'}</code>, <code>{'{{height}}'}</code>, <code>{'{{seed}}'}</code>, <code>{'{{checkpoint}}'}</code>, <code>{'{{image}}'}</code>, <code>{'{{mask}}'}</code>, <code>{'{{frames}}'}</code> and <code>{'{{fps}}'}</code>.
       {folder ? <> Workflow folder: <code className="break-all">{folder}</code></> : ' Set COMFYUI_WORKFLOWS_DIR on the server to add workflows.'}
     </p>
   </section>;

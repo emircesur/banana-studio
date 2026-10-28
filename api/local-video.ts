@@ -24,6 +24,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (typeof body.prompt !== 'string' || !body.prompt.trim() || body.prompt.length > 20000) return res.status(400).json({ error: 'Enter a prompt up to 20,000 characters.' });
       if (!isWorkflowName(body.localWorkflow)) return res.status(400).json({ error: 'Choose a ComfyUI video workflow in AI settings → Local models.' });
       if (body.localModel != null && !isLocalAssetName(body.localModel)) return res.status(400).json({ error: 'Invalid local model.' });
+      if (body.localNegativePrompt != null && (typeof body.localNegativePrompt !== 'string' || body.localNegativePrompt.length > 2000)) return res.status(400).json({ error: 'The negative prompt can have up to 2,000 characters.' });
       const duration = Number(body.duration);
       if (!Number.isFinite(duration) || duration < 1 || duration > 30) return res.status(400).json({ error: 'Choose a duration between 1 and 30 seconds.' });
       if (body.imageUrls != null && (!Array.isArray(body.imageUrls) || body.imageUrls.length > 1 || body.imageUrls.some((url: unknown) => !isReferenceUrl(url)))) {
@@ -37,7 +38,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         image = Buffer.from(match[2], 'base64'); imageMime = match[1];
       }
       const id = await comfySubmit({ prompt: body.prompt, ...localVideoSize(String(body.aspectRatio), String(body.quality)), duration,
-        workflow: body.localWorkflow, checkpoint: body.localModel, image, imageMime }, 'video', AbortSignal.timeout(55_000));
+        workflow: body.localWorkflow, checkpoint: body.localModel, negative: body.localNegativePrompt || undefined, image, imageMime }, 'video', AbortSignal.timeout(55_000));
       const taskId = `bs_comfyui_local-video_${id}`;
       await registerProviderTask(registry, 'comfyui', taskId, user.id);
       return res.status(200).json({ taskId, provider: 'comfyui', endpoint: `comfyui/${body.localWorkflow}` });

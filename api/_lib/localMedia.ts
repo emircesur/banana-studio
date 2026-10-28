@@ -6,14 +6,17 @@ import { isLocalAssetName, isWorkflowName, localServerUrl } from '../../src/lib/
 /** Self-hosted image/video servers. Destinations come only from server configuration;
  * the browser chooses a model or workflow name, never a URL or file path. */
 export type LocalJob = { prompt: string; width: number; height: number; checkpoint?: string; workflow?: string; image?: Buffer; imageMime?: string;
-  frames?: number; fps?: number; duration?: number };
+  /** White = repaint. Sent as a real inpaint mask; the compositor still protects outside pixels. */ mask?: Buffer;
+  seed?: number; negative?: string; frames?: number; fps?: number; duration?: number };
 
 const env = (name: string, fallback: number, min: number, max: number) => {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value >= min && value <= max ? value : fallback;
 };
+export const randomSeed = () => Math.floor(Math.random() * 2 ** 32);
+export const isSeed = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0 && (value as number) < 2 ** 32;
 export const localTuning = () => ({ steps: env('LOCAL_IMAGE_STEPS', 25, 1, 150), cfg: env('LOCAL_IMAGE_CFG', 6, 0, 30),
-  denoise: env('LOCAL_IMAGE_DENOISE', 0.6, 0.05, 1), negative: (process.env.LOCAL_NEGATIVE_PROMPT || '').slice(0, 2000), fps: env('LOCAL_VIDEO_FPS', 16, 1, 60) });
+  denoise: env('LOCAL_IMAGE_DENOISE', 0.6, 0.05, 1), inpaintDenoise: env('LOCAL_INPAINT_DENOISE', 0.75, 0.05, 1), negative: (process.env.LOCAL_NEGATIVE_PROMPT || '').slice(0, 2000), fps: env('LOCAL_VIDEO_FPS', 16, 1, 60) });
 
 const json = async (response: Response, label: string) => {
   const data = await response.json().catch(() => null);
@@ -26,9 +29,11 @@ export async function sdwebuiImage(job: LocalJob, signal: AbortSignal): Promise<
   const base = localServerUrl('sdwebui', process.env);
   if (!base) throw new Error('Stable Diffusion WebUI is not configured. Set SDWEBUI_BASE_URL.');
   const tune = localTuning();
-  const body = { prompt: job.prompt, negative_prompt: tune.negative, width: job.width, height: job.height, steps: tune.steps, cfg_scale: tune.cfg,
-    seed: -1, batch_size: 1, n_iter: 1, ...(job.checkpoint ? { override_settings: { sd_model_checkpoint: job.checkpoint }, override_settings_restore_afterwards: true } : {}),
-    ...(job.image ? { init_images: [job.image.toString('base64')], denoising_strength: tune.denoise, resize_mode: 1 } : {}) };
+  const body = { prompt: job.prompt, negative_prompt: job.negative ?? tune.negative, width: job.width, height: job.height, steps: tune.steps, cfg_scale: tune.cfg,
+    seed: job.seed ?? -1, batch_size: 1, n_iter: 1, ...(job.checkpoint ? { override_settings: { sd_model_checkpoint: job.checkpoint }, override_settings_restore_afterwards: true } : {}),
+    ...(job.image ? { init_images: [job.image.toString('base64')], denoising_strength: job.mask ? tune.inpaintDenoise : tune.denoise, resize_mode: 1 } : {}),
+    // inpainting_fill 1 = start from the original pixels, so regular checkpoints inpaint well.
+    ...(job.image && job.mask ? { mask: job.mask.toString('base64'), mask_blur: 4, inpainting_fill: 1, inpaint_full_res: false, inpainting_mask_invert: 0 } : {}) };
   const data = await json(await fetch(`${base}/sdapi/v1/${job.image ? 'img2img' : 'txt2img'}`, {
     method: 'POST', redirect: 'error', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }), 'Stable Diffusion WebUI');
   const image = data?.images?.[0];
@@ -38,14 +43,22 @@ export async function sdwebuiImage(job: LocalJob, signal: AbortSignal): Promise<
 
 // ---- ComfyUI ----
 /** Core-node SD/SDXL graph; custom workflows cover Flux, Wan, LTX and any other model. */
-export const defaultComfyImageWorkflow = (img2img: boolean) => ({
+export const defaultComfyImageWorkflow = (img2img: boolean, masked = false) => ({
   4: { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: '{{checkpoint}}' } },
   6: { class_type: 'CLIPTextEncode', inputs: { text: '{{prompt}}', clip: ['4', 1] } },
   7: { class_type: 'CLIPTextEncode', inputs: { text: '{{negative_prompt}}', clip: ['4', 1] } },
   ...(img2img ? {
     10: { class_type: 'LoadImage', inputs: { image: '{{image}}' } },
     12: { class_type: 'ImageScale', inputs: { image: ['10', 0], upscale_method: 'lanczos', width: '{{width}}', height: '{{height}}', crop: 'center' } },
-    5: { class_type: 'VAEEncode', inputs: { pixels: ['12', 0], vae: ['4', 2] } },
+    ...(masked ? {
+      13: { class_type: 'VAEEncode', inputs: { pixels: ['12', 0], vae: ['4', 2] } },
+      14: { class_type: 'LoadImageMask', inputs: { image: '{{mask}}', channel: 'red' } },
+      15: { class_type: 'MaskToImage', inputs: { mask: ['14', 0] } },
+      16: { class_type: 'ImageScale', inputs: { image: ['15', 0], upscale_method: 'bilinear', width: '{{width}}', height: '{{height}}', crop: 'center' } },
+      17: { class_type: 'ImageToMask', inputs: { image: ['16', 0], channel: 'red' } },
+      // A noise mask works with regular checkpoints, not only inpainting models.
+      5: { class_type: 'SetLatentNoiseMask', inputs: { samples: ['13', 0], mask: ['17', 0] } },
+    } : { 5: { class_type: 'VAEEncode', inputs: { pixels: ['12', 0], vae: ['4', 2] } } }),
   } : { 5: { class_type: 'EmptyLatentImage', inputs: { width: '{{width}}', height: '{{height}}', batch_size: 1 } } }),
   3: { class_type: 'KSampler', inputs: { seed: '{{seed}}', steps: '{{steps}}', cfg: '{{cfg}}', sampler_name: 'euler', scheduler: 'normal', denoise: '{{denoise}}',
     model: ['4', 0], positive: ['6', 0], negative: ['7', 0], latent_image: ['5', 0] } },
@@ -109,7 +122,7 @@ async function comfyUpload(image: Buffer, mime: string, signal: AbortSignal): Pr
 /** Queue a graph and return its prompt id. Missing checkpoint falls back to the first installed one. */
 export async function comfySubmit(job: LocalJob, kind: 'image' | 'video', signal: AbortSignal): Promise<string> {
   const tune = localTuning();
-  const workflow = job.workflow ? readWorkflow(job.workflow) : kind === 'image' ? defaultComfyImageWorkflow(!!job.image) : null;
+  const workflow = job.workflow ? readWorkflow(job.workflow) : kind === 'image' ? defaultComfyImageWorkflow(!!job.image, !!(job.image && job.mask)) : null;
   if (!workflow) throw new Error('Local video needs a ComfyUI workflow. Add one to the workflows folder and choose it in Local models.');
   if (workflowUses(workflow, 'image') && !job.image) throw new Error('This workflow needs a reference image. Attach one and try again.');
   let checkpoint = job.checkpoint;
@@ -118,10 +131,14 @@ export async function comfySubmit(job: LocalJob, kind: 'image' | 'video', signal
     if (!checkpoint) throw new Error('ComfyUI has no checkpoint installed. Add a model to ComfyUI/models/checkpoints.');
   }
   const image = job.image && workflowUses(workflow, 'image') ? await comfyUpload(job.image, job.imageMime || 'image/png', signal) : '';
+  const mask = job.mask && workflowUses(workflow, 'mask') ? await comfyUpload(job.mask, 'image/png', signal) : '';
   const fps = job.fps || tune.fps;
-  const prompt = fillWorkflow(workflow, { prompt: job.prompt, negative_prompt: tune.negative, width: job.width, height: job.height,
-    seed: Math.floor(Math.random() * 2 ** 32), steps: tune.steps, cfg: tune.cfg, denoise: job.image && !job.workflow ? tune.denoise : 1,
-    checkpoint: checkpoint || '', image, fps, duration: job.duration || 0, frames: job.frames || Math.max(1, Math.round((job.duration || 5) * fps) + 1) });
+  const prompt = fillWorkflow(workflow, { prompt: job.prompt, negative_prompt: job.negative ?? tune.negative, width: job.width, height: job.height,
+    seed: job.seed ?? randomSeed(), steps: tune.steps, cfg: tune.cfg, denoise: job.image && !job.workflow ? job.mask ? tune.inpaintDenoise : tune.denoise : 1,
+    checkpoint: checkpoint || '', image, mask, fps, duration: job.duration || 0, frames: job.frames || Math.max(1, Math.round((job.duration || 5) * fps) + 1) });
+  return comfyQueue(prompt, signal);
+}
+async function comfyQueue(prompt: unknown, signal: AbortSignal): Promise<string> {
   const data = await json(await fetch(`${comfyBase()}/prompt`, { method: 'POST', redirect: 'error', signal,
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, client_id: 'banana-studio' }) }), 'ComfyUI');
   if (typeof data?.prompt_id !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(data.prompt_id)) throw new Error('ComfyUI did not confirm the job.');
@@ -157,7 +174,9 @@ export async function comfyDownload(file: NonNullable<ComfyResult['file']>, maxB
   return { bytes, mime, ext };
 }
 export async function comfyImage(job: LocalJob, signal: AbortSignal): Promise<Buffer> {
-  const id = await comfySubmit(job, 'image', signal);
+  return comfyWaitImage(await comfySubmit(job, 'image', signal), signal);
+}
+async function comfyWaitImage(id: string, signal: AbortSignal): Promise<Buffer> {
   while (true) {
     signal.throwIfAborted();
     const result = await comfyStatus(id, 'image', signal);
@@ -185,4 +204,37 @@ export async function listLocalModels(server: string): Promise<{ models: string[
   const data = await json(await fetch(server === 'sdwebui' ? `${base}/sdapi/v1/sd-models` : `${base}/models`, { redirect: 'error', signal }), server);
   const names = server === 'sdwebui' ? (Array.isArray(data) ? data.map((m: any) => m?.title) : []) : (Array.isArray(data?.data) ? data.data.map((m: any) => m?.id) : []);
   return { models: names.filter(isLocalAssetName).slice(0, 500) };
+}
+
+// ---- Upscaling ----
+/** The output still has to fit the raster decoder and storage limits. */
+export const MAX_UPSCALE_PIXELS = 33_554_432;
+export async function sdwebuiUpscale(image: Buffer, scale: number, signal: AbortSignal): Promise<Buffer> {
+  const base = localServerUrl('sdwebui', process.env);
+  if (!base) throw new Error('Stable Diffusion WebUI is not configured. Set SDWEBUI_BASE_URL.');
+  const data = await json(await fetch(`${base}/sdapi/v1/extra-single-image`, { method: 'POST', redirect: 'error', signal, headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image: image.toString('base64'), resize_mode: 0, upscaling_resize: scale, upscaler_1: process.env.LOCAL_UPSCALER || 'R-ESRGAN 4x+' }) }), 'Stable Diffusion WebUI');
+  if (typeof data?.image !== 'string' || !data.image) throw new Error('Stable Diffusion WebUI returned no upscaled image.');
+  return Buffer.from(data.image.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+}
+export async function comfyUpscaleModels(signal?: AbortSignal): Promise<string[]> {
+  const data = await json(await fetch(`${comfyBase()}/object_info/UpscaleModelLoader`, { redirect: 'error', signal }), 'ComfyUI');
+  const names = data?.UpscaleModelLoader?.input?.required?.model_name?.[0];
+  return Array.isArray(names) ? names.filter(isLocalAssetName) : [];
+}
+/** ESRGAN-style model when installed (then resized to the exact factor); plain lanczos otherwise. */
+export async function comfyUpscale(image: Buffer, mime: string, size: { width: number; height: number }, scale: number, signal: AbortSignal): Promise<Buffer> {
+  const models = await comfyUpscaleModels(signal);
+  const model = models.find(name => name === process.env.LOCAL_UPSCALER) || models[0];
+  const name = await comfyUpload(image, mime, signal);
+  const graph = {
+    1: { class_type: 'LoadImage', inputs: { image: name } },
+    ...(model ? {
+      2: { class_type: 'UpscaleModelLoader', inputs: { model_name: model } },
+      3: { class_type: 'ImageUpscaleWithModel', inputs: { upscale_model: ['2', 0], image: ['1', 0] } },
+    } : {}),
+    4: { class_type: 'ImageScale', inputs: { image: [model ? '3' : '1', 0], upscale_method: 'lanczos', width: size.width * scale, height: size.height * scale, crop: 'disabled' } },
+    5: { class_type: 'SaveImage', inputs: { filename_prefix: 'banana-studio-upscale', images: ['4', 0] } },
+  };
+  return comfyWaitImage(await comfyQueue(graph, signal), signal);
 }

@@ -33,6 +33,7 @@ import type { TextTaskStage } from '../services/geminiClient';
 import type { BrainstormGenerationRequest } from '../lib/brainstorm/brainstormGeneration';
 import { getOriginalImagePrompt } from '../lib/prompts/promptHistory';
 import { diffPrompts } from '../lib/prompts/promptDiff';
+import { LocalImageComposerOptions } from './LocalImageActions';
 import { updateImageDraftPrompt, validateImageGenerationReferences, getSunburstEditIntent } from '../lib/images/imagePrompting';
 import { isValidEditRegion } from '../lib/images/imageEditRegion';
 import { MAX_VIDEO_UPLOAD_BYTES, MAX_VIDEO_UPLOAD_MB } from '../lib/references/mediaUploadLimits';
@@ -901,7 +902,7 @@ export const Controls: React.FC<ControlsProps> = ({
       // their decoded metadata must survive the enhanced prompt update.
       const enhancementDraft = latestConfigRef.current;
       if (enhancementDraft !== config && !(isH3VideoConfig && isH3MetadataOnlyUpdate(config, enhancementDraft))) {
-        setEnhanceError('Enhance sırasında prompt veya ayarlar değişti. Güncel seçimler için yeniden Enhance yap.');
+        setEnhanceError('The prompt or settings changed during Enhance. Enhance again for the current selections.');
         return;
       }
       if (enhanced) {
@@ -915,7 +916,7 @@ export const Controls: React.FC<ControlsProps> = ({
       }
     } catch (e) {
       console.error("Failed to enhance", e);
-      setEnhanceError(e instanceof Error ? e.message : 'Prompt Enhance başarısız oldu. Tekrar dene.');
+      setEnhanceError(e instanceof Error ? e.message : 'Enhance failed. Try again.');
     } finally {
       setIsEnhancing(false);
     }
@@ -2556,11 +2557,11 @@ export const Controls: React.FC<ControlsProps> = ({
             <div className="flex min-w-0 items-start gap-2.5">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
               <div className="min-w-0">
-                <p className="text-xs font-semibold text-amber-100">Seçimler değişti — yeniden Enhance gerekli</p>
+                <p className="text-xs font-semibold text-amber-100">Selections changed — Enhance again</p>
                 <p className="mt-1 text-[11px] leading-5 text-amber-100/65">
                   {enhancedPromptTargetLabel !== currentPromptTargetLabel && <><span className="font-medium text-amber-200/80">{enhancedPromptTargetLabel}</span><span className="mx-1.5 text-amber-400/50">→</span></>}
                   <span className="font-medium text-white">{currentPromptTargetLabel}</span>
-                  . Mevcut prompt önceki seçimler için hazırlandı. Revert ile kendi promptuna dön, ardından yeniden Enhance yap.
+                  . The current prompt was prepared for earlier selections. Revert to your own prompt, then Enhance again.
                 </p>
               </div>
             </div>
@@ -2899,6 +2900,9 @@ export const Controls: React.FC<ControlsProps> = ({
                 {isVideoMode ? (
                   <>
                     <Dropdown label="Model" value={selectedVideoModel} options={videoModelOptions} onSelect={(val: VideoModelId) => updateVideoModel(val)} icon={Video} compact />
+                    {isLocalVideoConfig && <input type="text" aria-label="Negative prompt" placeholder="Negative prompt" maxLength={2000} value={config.localNegativePrompt || ''}
+                      onChange={event => updateConfig('localNegativePrompt', event.target.value || undefined)}
+                      className="h-8 w-40 min-w-0 rounded-lg border border-white/[0.07] bg-[#171e28] px-2.5 text-xs text-gray-200 placeholder:text-gray-500 outline-none focus:border-violet-400" />}
                     {isH3VideoConfig && <Dropdown label="H3 Max action" value={h3State.available ? h3State.mode : 'Choose action'} options={H3_MAX_MODE_OPTIONS} onSelect={updateH3Mode} icon={Film} compact />}
                     {(selectedVideoModel === 'seedance-2.0' || selectedVideoModel === 'seedance-2.5') && (
                       <Dropdown label="Action" value={selectedVideoIntent} options={videoOperationOptions} onSelect={(val: VideoPromptIntent) => updateVideoOperation(val)} icon={Film} compact />
@@ -2923,6 +2927,7 @@ export const Controls: React.FC<ControlsProps> = ({
                       <Dropdown label="Aspect Ratio" value={config.aspectRatio} options={aspectRatioOptions} onSelect={(val) => updateConfig('aspectRatio', val)} icon={Ratio} compact />
                       <Dropdown label="Resolution" value={config.resolution} options={resolutionOptions} onSelect={(val) => updateConfig('resolution', val)} icon={Scan} compact />
                     </>}
+                    {config.imageModel === 'local-image' && <LocalImageComposerOptions config={config} update={updateConfig} />}
                     <ImageCountControl count={config.count} onChange={value => updateConfig('count', value)} />
                   </>
                 )}

@@ -29,8 +29,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const configured = (native ? process.env.OLLAMA_MODEL : process.env.LOCAL_OPENAI_MODEL)?.trim();
   const defaultModel = isModelName(configured) ? configured : null;
   const unreachable = typeof body?.fallbackFor === 'string'
-    ? `${body.fallbackFor.slice(0, 60)} için anahtar yok ve yerel model sunucusuna ulaşılamadı. Provider keys'e anahtar ekle veya Ollama / LM Studio'yu başlat.`
-    : native ? ollamaErrorMessage() : 'Yerel OpenAI-uyumlu sunucuya ulaşılamadı. LM Studio sunucusunun açık olduğunu ve LOCAL_OPENAI_BASE_URL adresini kontrol et.';
+    ? `${body.fallbackFor.slice(0, 60)} has no provider key and the local model server could not be reached. Add a key in Provider keys or start Ollama / LM Studio.`
+    : native ? ollamaErrorMessage() : 'The local OpenAI-compatible server could not be reached. Check that the LM Studio server is running and LOCAL_OPENAI_BASE_URL is correct.';
 
   if (req.method === 'GET') {
     try {
@@ -91,22 +91,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!response.ok) return fail(response.status === 404 ? 404 : 502, ollamaErrorMessage(response.status, detail));
     const choice = data?.choices?.[0];
     const finish = native ? data?.done_reason : choice?.finish_reason;
-    if (finish && finish !== 'stop') return fail(502, 'Model yanıtı tamamlanamadı. Bağlam penceresini (OLLAMA_NUM_CTX / sunucu ayarı) artır veya isteği kısalt.');
+    if (finish && finish !== 'stop') return fail(502, 'The model response did not finish. Increase the context window (OLLAMA_NUM_CTX or the server setting) or shorten the request.');
     const content = native ? data?.message?.content : choice?.message?.content;
     // Reasoning models may wrap their scratchpad in <think> tags on OpenAI-compatible servers.
     let text = typeof content === 'string' ? content.replace(/^\s*<think>[\s\S]*?<\/think>\s*/, '') : '';
-    if (!text.trim()) return fail(502, 'Model boş yanıt döndürdü. Yeniden dene.');
+    if (!text.trim()) return fail(502, 'The model returned an empty response. Try again.');
     if (streaming) send({ type: 'status', stage: 'finishing' });
     if (usageContext.action === 'brainstorm') {
       const normalized = normalizeBrainstormOutput(text, wardrobe, body.brainstormCount);
-      if (!normalized) return fail(502, 'Model fikirleri beklenen biçimde döndürmedi. Yeniden dene veya daha güçlü bir yerel model seç.');
+      if (!normalized) return fail(502, 'The model did not return ideas in the expected format. Try again or choose a stronger local model.');
       text = normalized;
     }
     if (analysis) {
       let value: any;
       try { value = JSON.parse(text); } catch { /* checked below */ }
       if (typeof value?.videoAvailable !== 'boolean' || typeof value.brief !== 'string' || typeof value.premise !== 'string'
-        || typeof value.limitation !== 'string' || !Array.isArray(value.evidence)) return fail(502, 'Model video analizini beklenen biçimde döndürmedi.');
+        || typeof value.limitation !== 'string' || !Array.isArray(value.evidence)) return fail(502, 'The model did not return the video analysis in the expected format.');
     }
     // Local usage is free; record token counts so admin usage still shows the activity.
     const accounting = createTaskDeadline(5_000);
@@ -125,7 +125,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json(result);
   } catch (error: any) {
     const timeout = error?.name === 'TimeoutError' || error?.name === 'AbortError';
-    return fail(timeout ? 504 : 502, timeout ? 'Yerel model yanıt süresi aşıldı. Daha küçük bir model seç veya isteği kısalt.' : unreachable);
+    return fail(timeout ? 504 : 502, timeout ? 'The local model took too long. Choose a smaller model or shorten the request.' : unreachable);
   } finally {
     deadline.dispose(); clearInterval(heartbeat); res.off?.('close', close);
   }

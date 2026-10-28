@@ -27,7 +27,7 @@ export const validateImageGenerationReferences = (settings: Pick<GenerationConfi
     if (selectedSources.length !== 1 || !isValidEditRegion(selectedSources[0].editRegion)
       || references.some(ref => ref !== selectedSources[0] && ref.editRegion != null)) throw new Error(EDIT_REGION_REQUIRED);
     if (getPersonId(selectedSources[0]) != null || selectedSources[0].isVideoContext) {
-      throw new Error('Kişi fotoğrafı veya video bağlamı yerine düzenlemek istediğin görselde Edit area seç.');
+      throw new Error('Select the Edit area on the image you want to change, not on a person photo or video context.');
     }
   }
   if (settings.imageModel === SUNBURST_MODEL || settings.imageModel === 'gpt-image-2-beta') {
@@ -113,12 +113,12 @@ export const getSunburstEditIntent = (prompt: string, references: ReferenceImage
   const inputs = getSunburstReferences(references);
   const selected = inputs.flatMap((ref, index) => ref.editRegion != null ? [index] : []);
   if (!selected.length) return undefined;
-  if (selected.length > 1) throw new Error('Düzenlenecek kaynak olarak tek bir görsel seç.');
-  if (selected.some(index => inputs[index].isVideoContext || getPersonId(inputs[index]) != null)) throw new Error('Düzenleme için kapak görselinde Edit area ile alan seç; People fotoğrafı veya video bağlamı kaynak olamaz.');
+  if (selected.length > 1) throw new Error('Choose a single image as the edit source.');
+  if (selected.some(index => inputs[index].isVideoContext || getPersonId(inputs[index]) != null)) throw new Error('Select the Edit area on the cover image; a People photo or video context cannot be the edit source.');
   if (!isValidEditRegion(inputs[selected[0]].editRegion)) throw new Error(EDIT_REGION_REQUIRED);
   const brief = withoutQuotedCopy(normalizeEditImageMentions(normalizeSunburstPrompt(settings.originalPrompt?.trim() || prompt, references)));
   const inferredSource = resolveEditSource(brief, inputs, selected[0]);
-  if (inferredSource != null && inferredSource !== selected[0]) throw new Error('Prompttaki kaynak ile alan seçimi farklı. Düzenlenecek görseli eşleştir.');
+  if (inferredSource != null && inferredSource !== selected[0]) throw new Error('The source named in the prompt differs from the selected area. Match the image you want to edit.');
   return { sourceIndex: selected[0] };
 };
 
@@ -342,7 +342,7 @@ export const prepareSunburstGeneration = (prompt: string, references: ReferenceI
     ? references.filter(ref => ref.isVideoContext && getPersonId(ref) == null && !ref.isDraftImage) : [];
   if (!contextOnly.length) return { prompt: composeSunburstGenerationPrompt(prompt, references, settings, edit), referenceImages: references };
   if (references.some(ref => !ref.id) || new Set(references.map(ref => ref.id)).size !== references.length) {
-    throw new Error('Görsel referanslarının kimlikleri eksik veya tekrarlanıyor. Referansları yeniden ekleyip tekrar dene.');
+    throw new Error('Image reference IDs are missing or duplicated. Attach the references again and retry.');
   }
 
   // Bind against the original snapshot BEFORE removing any inputs, including
