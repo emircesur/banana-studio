@@ -53,7 +53,7 @@ export function LocalModelSettings() {
       listLocalModels(server, controller.signal).then(list => setLists(current => ({ ...current, [server]: list }))).catch(() => { /* Status shows the failure. */ });
     }
     return () => controller.abort();
-  }, [status.sdwebui, status.comfyui]);
+  }, [status.sdwebui, status.comfyui, refresh]);
   const checkpoints = [...(lists.sdwebui?.models || []), ...(lists.comfyui?.models || [])];
   const workflows = lists.comfyui?.workflows || [];
   const folder = lists.comfyui?.workflowsDir;

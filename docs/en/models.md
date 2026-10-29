@@ -43,7 +43,7 @@ Text, images and video can run on servers on your own computer or network. Image
 | | | ComfyUI · `http://127.0.0.1:8188` | `COMFYUI_BASE_URL` |
 | Video (text or one image) | Local · ComfyUI workflow | ComfyUI | `COMFYUI_BASE_URL` |
 
-**Desktop (macOS, Windows):** the app connects to the default addresses automatically; start the server and choose the model. **Self-hosted web (any OS, including Linux):** set the variables on the server; the address must be reachable from the server, not only from your browser. `<NAME>_ENABLED=false` (for example `COMFYUI_ENABLED=false`) hides a route.
+**Desktop (macOS, Windows):** the app connects to the default addresses automatically; start the server and choose the model. **Self-hosted web (any OS, including Linux):** set the variables on the server; the address must be reachable from the server, not only from your browser. To hide a route, set `OLLAMA_ENABLED=false`, `OPENAICOMPAT_ENABLED=false` (LM Studio / OpenAI-compatible), `SDWEBUI_ENABLED=false` or `COMFYUI_ENABLED=false`.
 
 1. **Text:** `ollama pull qwen3:8b`, or `ollama pull gemma3` for image references. In **AI settings → AI Text Model** choose **Local model (Ollama / LM Studio)**, pick the installed model and save. Pick Ollama or LM Studio in **Provider routing**. Without any cloud key, Auto also sends Opus / GPT / Gemini text tasks to the local server. YouTube footage itself is still read by Gemini.
 2. **Images:** choose **Local · Stable Diffusion / ComfyUI** as the image model. In **AI settings → Local models** pick a checkpoint (empty = first installed). References become an img2img source; for **Edit area** the selection is composited back onto the original.

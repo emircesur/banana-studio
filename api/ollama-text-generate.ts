@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { applyCors, createUserScopedClient, requireUser } from './_lib/auth.js';
 import { missingProviderMessage } from './_lib/providerConfiguration.js';
 import { createTaskDeadline, waitForTask } from '../src/lib/shared/asyncTask.js';
-import { OLLAMA_TEXT_MODEL, buildOllamaChat, buildOpenAICompatibleChat, isOllamaModelName, ollamaContextSize, ollamaErrorMessage } from '../src/lib/prompts/ollamaText.js';
+import { OLLAMA_TEXT_MODEL, buildOllamaChat, buildOpenAICompatibleChat, isOllamaModelName, ollamaContextSize, ollamaErrorMessage, openAICompatibleErrorMessage } from '../src/lib/prompts/ollamaText.js';
 import { isLocalAssetName, localServerUrl, LOCAL_SERVERS } from '../src/lib/localModels.js';
 import { ANALYSIS_SYSTEM_PROMPT, TEXT_TASK_SYSTEM_PROMPT, buildBrainstormOutputFormat, brainstormOutputInstruction, isBrainstormCount, YOUTUBE_ANALYSIS_FORMAT, normalizeBrainstormOutput } from './_lib/textOutputFormats.js';
 
@@ -88,7 +88,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }), deadline.signal);
     const data = await waitForTask(response.json().catch(() => null), deadline.signal);
     const detail = typeof data?.error === 'string' ? data.error : typeof data?.error?.message === 'string' ? data.error.message : undefined;
-    if (!response.ok) return fail(response.status === 404 ? 404 : 502, ollamaErrorMessage(response.status, detail));
+    if (!response.ok) return fail(response.status === 404 ? 404 : 502, (native ? ollamaErrorMessage : openAICompatibleErrorMessage)(response.status, detail));
     const choice = data?.choices?.[0];
     const finish = native ? data?.done_reason : choice?.finish_reason;
     if (finish && finish !== 'stop') return fail(502, 'The model response did not finish. Increase the context window (OLLAMA_NUM_CTX or the server setting) or shorten the request.');

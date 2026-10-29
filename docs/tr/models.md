@@ -43,7 +43,7 @@ Metin, görsel ve video kendi bilgisayarındaki veya ağındaki sunucularda çal
 | | | ComfyUI · `http://127.0.0.1:8188` | `COMFYUI_BASE_URL` |
 | Video (metin veya tek görsel) | Local · ComfyUI workflow | ComfyUI | `COMFYUI_BASE_URL` |
 
-**Masaüstü (macOS, Windows):** uygulama varsayılan adreslere kendiliğinden bağlanır; sunucuyu başlat ve modeli seç. **Kendi sunucunda web (Linux dahil her işletim sistemi):** değişkenleri sunucuda tanımla; adres yalnızca tarayıcından değil, sunucudan erişilebilir olmalı. `<AD>_ENABLED=false` (ör. `COMFYUI_ENABLED=false`) bağlantıyı gizler.
+**Masaüstü (macOS, Windows):** uygulama varsayılan adreslere kendiliğinden bağlanır; sunucuyu başlat ve modeli seç. **Kendi sunucunda web (Linux dahil her işletim sistemi):** değişkenleri sunucuda tanımla; adres yalnızca tarayıcından değil, sunucudan erişilebilir olmalı. Bir bağlantıyı gizlemek için `OLLAMA_ENABLED=false`, `OPENAICOMPAT_ENABLED=false` (LM Studio / OpenAI uyumlu), `SDWEBUI_ENABLED=false` veya `COMFYUI_ENABLED=false` kullan.
 
 1. **Metin:** `ollama pull qwen3:8b`, görsel referans için `ollama pull gemma3`. **AI settings → AI Text Model** içinde **Local model (Ollama / LM Studio)** seç, kurulu modeli seçip kaydet. Ollama veya LM Studio'yu **Provider routing** içinde seç. Hiç bulut anahtarı yoksa Auto, Opus / GPT / Gemini metin işlerini de yerel sunucuya gönderir. YouTube videosunu yine Gemini okur.
 2. **Görsel:** görsel modeli olarak **Local · Stable Diffusion / ComfyUI** seç. **AI settings → Local models** içinde checkpoint seç (boş = ilk kurulu model). Referanslar img2img kaynağı olur; **Edit area** seçimi orijinalin üzerine yerleştirilir.

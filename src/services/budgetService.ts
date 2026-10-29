@@ -19,8 +19,10 @@ export async function getMyUsage(since: Date): Promise<UsageRow[]> {
   if (!session) return [];
   const rows: UsageRow[] = [];
   for (let from = 0; from < 20000; from += 1000) {
+    // Pages need a stable order; LIMIT/OFFSET without one can repeat or skip rows.
     const { data, error } = await supabase.from('usage_logs').select('model,action,image_count,estimated_cost')
-      .eq('user_id', session.user.id).gte('created_at', isLocalWorkspace() ? since.getTime() : since.toISOString()).range(from, from + 999);
+      .eq('user_id', session.user.id).gte('created_at', isLocalWorkspace() ? since.getTime() : since.toISOString())
+      .order('created_at', { ascending: true }).order('id', { ascending: true }).range(from, from + 999);
     if (error) throw new Error('Usage could not be loaded.');
     rows.push(...(data || []));
     if (!data || data.length < 1000) break;

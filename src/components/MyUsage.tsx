@@ -37,7 +37,7 @@ export function MyUsage() {
     <p className="mt-1 text-xs leading-relaxed text-gray-400">Recorded estimates for your account. Providers bill separately; check their dashboards for invoices.</p>
     {error ? <p role="alert" className="mt-3 text-sm text-red-300">{error}</p> : !rows ? <p role="status" className="mt-3 flex items-center gap-2 text-sm text-gray-400"><Loader2 className="h-4 w-4 animate-spin" />Loading usage…</p> : <>
       <p className="mt-3 text-2xl font-semibold text-white">${total.toFixed(2)} <span className="text-sm font-normal text-gray-400">· {rows.length} request{rows.length === 1 ? '' : 's'}</span></p>
-      {byModel.size > 0 ? <table className="mt-3 w-full text-left text-xs">
+      {byModel.size > 0 ? <table aria-labelledby="my-usage-title" className="mt-3 w-full text-left text-xs">
         <thead className="text-gray-500"><tr><th className="py-1 font-medium">Model</th><th className="py-1 text-right font-medium">Requests</th><th className="py-1 text-right font-medium">Images</th><th className="py-1 text-right font-medium">Cost</th></tr></thead>
         <tbody className="text-gray-300">{[...byModel.entries()].sort((a, b) => b[1].cost - a[1].cost || b[1].requests - a[1].requests).map(([model, entry]) =>
           <tr key={model} className="border-t border-white/5"><td className="py-1.5 pr-2 break-all">{modelLabel(model)}</td><td className="py-1.5 text-right tabular-nums">{entry.requests}</td>

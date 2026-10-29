@@ -111,3 +111,18 @@ test('GET lists installed models and the server default', async () => {
     assert.deepEqual(res.body, { models: ['gemma3:latest'], defaultModel: 'gemma3:latest' });
   });
 });
+
+test('OpenAI-compatible server errors use LM Studio guidance, not Ollama commands', async () => {
+  await withFetch(async url => {
+    assert.equal(url, 'http://lmstudio.invalid:1234/v1/chat/completions');
+    return new Response(JSON.stringify({ error: { message: 'model not loaded' } }), { status: 404 });
+  }, async () => {
+    process.env.LOCAL_OPENAI_BASE_URL = 'http://lmstudio.invalid:1234/v1';
+    const res = response();
+    await handler(request({ provider: 'openaicompat', model: 'ollama/local', localModel: 'qwen2.5-7b-instruct',
+      contents: { parts: [{ text: 'x' }] }, usageContext: { action: 'enhance', prompt: 'x' } }), res);
+    assert.equal(res.statusCode, 404);
+    assert.match(res.body.error, /LM Studio/);
+    assert.doesNotMatch(res.body.error, /ollama pull/);
+  });
+});

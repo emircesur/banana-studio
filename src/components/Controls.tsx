@@ -19,7 +19,7 @@ import { normalizeH3MaxDraft, removeH3MaxReferenceImages, setH3MaxImageRole, typ
 import { ImageReferenceSummary } from './ImageReferenceSummary';
 import { ImageEditArea } from './ImageEditArea';
 import { getOpenAIImageOptions, getOpenAIImageSize, getSunburstReferences, getImagePromptContextKey, SUNBURST_MODEL, validateOpenAIImageOptions, validateOpenAIImageSize } from '../lib/images/openaiImage';
-import React, { useRef, useState, useEffect, useLayoutEffect, useMemo } from 'react';
+import React, { useRef, useState, useEffect, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Sparkles, Pencil, X, Wand2, Plus, Minus, Loader2, ImagePlus, ChevronDown, ChevronUp, Check, Ratio, Scan, LayoutTemplate, Save, Trash2, RefreshCw, Eraser, Lightbulb, User, Users, Zap, Image as ImageIcon, Play, FileImage, FolderOpen, GripVertical, Video, Clock, Volume2, Music, Film, DollarSign, SkipForward, Rewind, FastForward, RotateCcw, AlertTriangle } from 'lucide-react';
 import { GenerationConfig, ReferenceImage, ReferenceVideo, ReferenceAudio, Template, BrainstormCategory, SavedReferenceImage, IMAGE_MODEL_OPTIONS, VIDEO_MODEL_OPTIONS, VIDEO_ASPECT_RATIO_OPTIONS, VIDEO_QUALITY_OPTIONS, VIDEO_DURATION_OPTIONS, DEFAULT_VIDEO_MODEL, GenerationMode, VideoModelId, VideoOperation, VideoPromptIntent, VideoAspectRatio, VideoQuality, VideoDuration, estimateVideoCost, getVideoPromptIntent, getPromptEnhancementTarget, isEnhancedPromptStale } from '../types';
@@ -406,7 +406,6 @@ export const Controls: React.FC<ControlsProps> = ({
     : config.originalPrompt) ?? null;
   const [isMinimized, setIsMinimized] = useState(false);
   const [showPromptDiff, setShowPromptDiff] = useState(false);
-  const promptDiff = useMemo(() => showPromptDiff && preEnhancePrompt !== null ? diffPrompts(preEnhancePrompt, config.prompt) : [], [showPromptDiff, preEnhancePrompt, config.prompt]);
   const lastPromptLoadRef = useRef(0);
   useLayoutEffect(() => {
     if (lastPromptLoadRef.current === promptLoadVersion) return;
@@ -1882,8 +1881,12 @@ export const Controls: React.FC<ControlsProps> = ({
   const requiresSourceVideo = isVideoMode && selectedVideoModel !== 'minimax-h3' && selectedVideoOperation !== 'generate';
   const h3InputError = isH3VideoConfig ? getH3MaxInputError(config) : null;
   const isSunburst = config.imageModel === SUNBURST_MODEL;
+  const localVideoReferenceError = isLocalVideoConfig
+    && (config.referenceImages.length > 1 || currentReferenceVideos.length > 0 || currentReferenceAudios.length > 0)
+    ? 'Local video accepts one reference image and no video or audio references.'
+    : null;
   const routeInputError = providerRoute.error || (config.mode === 'video' && selectedVideoModel !== 'minimax-h3' && selectedVideoModel !== 'local-video' && providerRoute.provider ? seedanceProviderError(providerRoute.provider, { videoModel: selectedVideoModel, mode: selectedVideoOperation === 'edit' ? 'video_edit' : selectedVideoOperation === 'extend' ? 'video_extend' : hasSeedanceFrameRoles ? 'image_to_video' : config.referenceImages.length || currentReferenceVideos.length || currentReferenceAudios.length ? 'reference_to_video' : 'text_to_video', duration: selectedVideoOperation === 'edit' ? -1 : config.videoDuration, quality: config.videoQuality, aspectRatio: config.videoAspectRatio, imageUrls: config.referenceImages.map(() => ''), videoUrls: currentReferenceVideos.map(() => ''), audioUrls: currentReferenceAudios.map(() => ''), referenceEditMode: selectedVideoOperation === 'reference_edit' }) : undefined);
-  const canGenerate = !routeInputError && !isDraftLoading && (isVideoMode
+  const canGenerate = !routeInputError && !localVideoReferenceError && !isDraftLoading && (isVideoMode
     ? uploadingReferenceVideos === 0 && !hasStaleEnhancedPrompt && (isH3VideoConfig ? !h3InputError : config.prompt.trim().length > 0 && (!requiresSourceVideo || (config.referenceVideos?.length || 0) > 0))
     : !isBrainstormActive && !sunburstError && !hasStaleEnhancedPrompt && (config.prompt.trim().length > 0 || (!isSunburst && config.referenceImages.length > 0)));
 
@@ -1908,7 +1911,7 @@ export const Controls: React.FC<ControlsProps> = ({
     );
   }
 
-  const modelInputError = routeInputError || h3InputError || sunburstError || (
+  const modelInputError = routeInputError || localVideoReferenceError || h3InputError || sunburstError || (
     isH3VideoConfig ? null : isVideoMode
       ? requiresSourceVideo && !(config.referenceVideos?.length)
         ? 'Add a source video for this action.'
@@ -2546,7 +2549,8 @@ export const Controls: React.FC<ControlsProps> = ({
               <button type="button" aria-label="Close changes" onClick={() => setShowPromptDiff(false)} className="rounded p-1 hover:text-white"><X className="h-3.5 w-3.5" /></button>
             </div>
             <p className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-5 text-gray-300">
-              {promptDiff.map((part, index) => part.type === 'same' ? <span key={index}>{part.text}</span>
+              {/* Compare what the user sees: image prompts display reference names, not stored tags. */}
+              {diffPrompts(displayPrompt(preEnhancePrompt), displayPrompt(config.prompt)).map((part, index) => part.type === 'same' ? <span key={index}>{part.text}</span>
                 : part.type === 'added' ? <ins key={index} className="rounded-sm bg-emerald-500/15 text-emerald-200 no-underline">{part.text}</ins>
                 : <del key={index} className="rounded-sm bg-red-500/10 text-red-300/80">{part.text}</del>)}
             </p>

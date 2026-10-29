@@ -1,5 +1,5 @@
 import { chooseProvider } from './_lib/providerConfiguration.js';
-import { PROVIDER_KEYS, PROVIDER_LABELS, type AIProvider } from '../src/lib/providers.js';
+import { LOCAL_PROVIDERS, PROVIDER_KEYS, PROVIDER_LABELS, type AIProvider } from '../src/lib/providers.js';
 import { imageProviderModel, requestImage } from './_lib/imageProviders.js';
 import { isReferenceUrl, providerImageUrl } from './_lib/providerMedia.js';
 import { getPersonId, cleanPersonName } from '../src/lib/references/personReferences.js';
@@ -230,7 +230,10 @@ export async function executeOpenAIImage(req:VercelRequest,res:VercelResponse,co
   } catch (error: any) {
     const message = error?.name === 'TimeoutError'
       ? `${PROVIDER_LABELS[provider]} exceeded the request time limit. It may still have billed this request. Check usage before generating again.`
-      : error instanceof SavedImageError ? error.message : provider === 'openai' ? openAIErrorMessage(error?.status, providerErrorCode) : `${PROVIDER_LABELS[provider]} could not finish the image. Check provider usage before submitting again.`;
+      : error instanceof SavedImageError ? error.message : provider === 'openai' ? openAIErrorMessage(error?.status, providerErrorCode)
+        // Local servers bill nothing; their own message (missing checkpoint, workflow error) is the useful one.
+        : LOCAL_PROVIDERS.includes(provider) && error instanceof Error && error.message ? error.message.slice(0, 500)
+        : `${PROVIDER_LABELS[provider]} could not finish the image. Check provider usage before submitting again.`;
     console.warn('OpenAI image request failed', { id: body.id, auditId: guard.id, status: providerStatus ?? null,
       code: providerErrorCode ?? null, elapsedMs: Date.now() - startedAt });
     await db.from('generations').update({ status: 'failed', metadata: { ...metadata, error: message } }).eq('id', body.id).eq('user_id', user.id);
