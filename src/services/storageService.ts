@@ -718,6 +718,10 @@ const mapRowToMedia = (row: any): GeneratedMedia => {
     generationTime: timestampGenerationTime ?? meta.generationTime,
     generationStartedAt,
     generationCompletedAt,
+    submissionHeartbeatAt: isVideo && typeof meta.submissionHeartbeatAt === 'number'
+      && Number.isFinite(meta.submissionHeartbeatAt) && meta.submissionHeartbeatAt > 0
+      ? meta.submissionHeartbeatAt
+      : undefined,
     referenceVideos,
     referenceAudios: sanitizePublicMediaRefs(meta.referenceAudios as ReferenceAudio[])
       .map(ref => ({ ...ref, url: resolveMediaReference(ref.url) || '' })),
@@ -1327,9 +1331,26 @@ export const saveVideo = async (
           }
         }
       } catch (fetchErr: any) {
-        // Never persist the expiring provider URL; the caller retries the copy.
         console.warn("Failed to fetch video for storage upload:", fetchErr.message);
-        return undefined;
+        // An earlier save may have stored this video and recorded it on the row,
+        // with only its status write lost. The provider URL can expire before
+        // the task is resumed, so finish with that stored copy.
+        try {
+          const { data: saved, error: savedError } = await supabase.from('generations')
+            .select('storage_path, thumbnail_path').eq('id', media.id).eq('user_id', userId).maybeSingle();
+          const storedUrl = !savedError && saved?.storage_path === storagePath ? await createMediaAccessUrl(storagePath) : undefined;
+          // Never persist the expiring provider URL; the caller retries the copy.
+          if (!storedUrl) return undefined;
+          publicUrl = storedUrl;
+          uploadedStoragePath = storagePath;
+          if (saved.thumbnail_path) {
+            uploadedThumbnailPath = saved.thumbnail_path;
+            // The poster is optional: a failed signature must not block the video row.
+            try { thumbnailUrl = await createMediaAccessUrl(saved.thumbnail_path) || thumbnailUrl; } catch { /* Keep the stored path. */ }
+          }
+        } catch {
+          return undefined;
+        }
       } finally {
         activeTransfers.delete(transfer);
         if (!activeTransfers.size) activeVideoTransfers.delete(transferKey);
@@ -1533,6 +1554,7 @@ export const createPendingVideo = async (
         promptPreparation: normalizePromptPreparation(config.promptPreparation),
         generationCost: config.generationCost,
         generationStartedAt: config.generationStartedAt,
+        submissionHeartbeatAt: Date.now(),
         referenceVideos: sanitizePublicMediaRefs(config.referenceVideos).map(ref => ({ ...ref, url: persistMediaReference(ref.url) })),
         referenceAudios: sanitizePublicMediaRefs(config.referenceAudios).map(ref => ({ ...ref, url: persistMediaReference(ref.url) })),
       },
@@ -2026,7 +2048,12 @@ export interface DeleteFolderResult {
   mediaIds: string[];
 }
 
-export const deleteFolder = async (folderId: string): Promise<DeleteFolderResult> => {
+/** Folder media rows that a failed delete left in place; they still exist. */
+export class FolderDeleteError extends Error {
+  constructor(message: string, readonly keptMediaIds: string[]) { super(message); }
+}
+
+export const deleteFolder = async (folderId: string, onMediaIds?: (ids: string[], folderIds: string[]) => void): Promise<DeleteFolderResult> => {
   const folderRelations: Array<{ id: string; parentId: string | null }> = [];
   let localFolders: Folder[] = [];
   let localMedia: GeneratedMedia[] = [];
@@ -2122,16 +2149,23 @@ export const deleteFolder = async (folderId: string): Promise<DeleteFolderResult
         }
       }
     }
+  }
 
+  // The caller marks these as deleted before any row goes, so a job that
+  // finishes during the delete cannot save one of them again.
+  onMediaIds?.(Array.from(mediaIds), Array.from(folderIds));
+
+  if (supabase && userId) {
     // Delete media before folders so no foreign-key action can move content
     // back to the parent/root folder.
-    for (const ids of chunk(Array.from(mediaIds))) {
+    const mediaChunks = chunk(Array.from(mediaIds));
+    for (const [index, ids] of mediaChunks.entries()) {
       const { error } = await supabase
         .from('generations')
         .delete()
         .eq('user_id', userId)
         .in('id', ids);
-      if (error) throw new Error(`Folder media could not be deleted: ${error.message}`);
+      if (error) throw new FolderDeleteError(`Folder media could not be deleted: ${error.message}`, mediaChunks.slice(index).flat());
       ids.forEach(removePendingDeletion);
     }
 

@@ -29,11 +29,14 @@ import { createRecreateConfig, mergeRecreateHydration } from './lib/gallery/recr
 import { validateImageGenerationReferences } from './lib/images/imagePrompting';
 import { prepareProtectedImageSource, finishProtectedImageEdit } from './services/imageEditService';
 import { getGalleryEditSourceId } from './lib/gallery/galleryEditJobs';
-import { isStuckPendingMedia } from './lib/gallery/stuckPending';
+import { isStuckPendingMedia, VIDEO_SUBMISSION_HEARTBEAT_INTERVAL_MS } from './lib/gallery/stuckPending';
+import { refreshPendingVideoSubmission, failStalePendingVideo, scheduleStaleVideoCheck, allowPeriodicStaleCheck } from './lib/gallery/videoSubmissionLease';
 import { mergeLoadedGalleryHistory } from './lib/gallery/galleryHistoryMerge';
 import { mergeReconciledGalleryCosts } from './lib/gallery/galleryBillingRefresh';
 import { createPromptPreparation } from './lib/prompts/promptPreparation';
 import { resolveTextModelPreferences } from './lib/prompts/textModels';
+
+class DeletedVideoError extends Error { constructor() { super('The video was deleted.'); } }
 
 const resolveImageModel = (value: unknown): GenerationConfig['imageModel'] => getActiveImageModel(value);
 
@@ -124,6 +127,9 @@ const AuthorizedWorkspace: React.FC<{
   const createPendingVideo = withWorkspaceSession(workspaceStorage.createPendingVideo);
   const updateVideoStatus = withWorkspaceSession(workspaceStorage.updateVideoStatus);
   const getImageById = withWorkspaceSession(workspaceStorage.getImageById);
+  const refreshVideoSubmission = withWorkspaceSession((id: string) => refreshPendingVideoSubmission(supabase, userId, id));
+  const failStaleVideoSubmission = withWorkspaceSession((id: string, message: string, now: number) =>
+    failStalePendingVideo(supabase, userId, id, message, now));
   const createPendingImage = withWorkspaceSession(workspaceStorage.createPendingImage);
   const setImageTaskInfo = withWorkspaceSession(workspaceStorage.setImageTaskInfo);
   const updateImageStatus = withWorkspaceSession(workspaceStorage.updateImageStatus);
@@ -159,6 +165,10 @@ const AuthorizedWorkspace: React.FC<{
   }, []);
 
   const [generatedMedia, setGeneratedMedia] = useState<GeneratedMedia[]>([]);
+  const generatedMediaRef = useRef<GeneratedMedia[]>([]);
+  const lastStaleVideoCheckRef = useRef(new Map<string, number>());
+  const checkingStaleVideosRef = useRef(new Set<string>());
+  useEffect(() => { generatedMediaRef.current = generatedMedia; }, [generatedMedia]);
   const [imageCostHistory, setImageCostHistory] = useState<{ userId: string; samples: ImageCostSample[] } | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [isInitialGalleryLoading, setIsInitialGalleryLoading] = useState(false);
@@ -169,6 +179,9 @@ const AuthorizedWorkspace: React.FC<{
   const [generationProgress, setGenerationProgress] = useState<{ completed: number; total: number } | null>(null);
   const ownImageJobsRef = useRef(new Set<string>());
   const favoriteTogglesRef = useRef(new Set<string>());
+  // Cancelling a running video deletes its card and row; a poll that finishes
+  // later must not save the video again.
+  const deletedMediaIdsRef = useRef(new Set<string>());
 
   // Navigation State
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
@@ -311,11 +324,18 @@ const AuthorizedWorkspace: React.FC<{
             // generationCost when it later calls saveVideo. Reading those from
             // React state inside resumeVideoPolling is racy.
             resumeVideoPolling(pending.id, pending.taskId, pending);
-          } else {
-            updateVideoStatus(pending.id, 'failed', { metadata: { error: 'Generation interrupted before task was created' } });
-            setGeneratedMedia(prev => prev.map(item =>
-              item.id === pending.id ? { ...item, isLoading: false, status: 'failed', error: 'Generation interrupted before task was created' } : item
-            ));
+          } else if (isStuckPendingMedia(pending, Date.now())) {
+            // A pending row may belong to another active tab/device. Only the
+            // database's atomic stale-lease check can fail it.
+            const message = 'Generation interrupted before task was created';
+            scheduleStaleVideoCheck(
+              () => failStaleVideoSubmission(pending.id, message, Date.now()),
+              () => cancelled,
+              () => setGeneratedMedia(prev => prev.map(item =>
+                item.id === pending.id && item.status === 'pending'
+                  ? { ...item, isLoading: false, status: 'failed', error: message } : item
+              )),
+            );
           }
         }
 
@@ -346,25 +366,37 @@ const AuthorizedWorkspace: React.FC<{
     };
   }, [isAuthenticated]);
 
-  // Watchdog: auto-fail any video stuck in 'pending' for >90s without a taskId.
-  // This catches cases where the provider createVideoTask call itself failed silently
-  // or the user closed the tab mid-flight before the task_id was saved.
+  // A different tab/device may still be submitting the video and renewing its
+  // shared lease. Never fail a video based on this tab's stale React snapshot.
   useEffect(() => {
     if (!isAuthenticated) return;
     const interval = setInterval(() => {
       const now = Date.now();
+      const errMsg = 'Generation request did not start (timed out before a task ID was returned). You can remove this entry.';
+      for (const item of generatedMediaRef.current) {
+        if (item.mediaType !== 'video' || !isStuckPendingMedia(item, now)
+          || checkingStaleVideosRef.current.has(item.id)
+          || !allowPeriodicStaleCheck(lastStaleVideoCheckRef.current, item.id, now)) continue;
+        checkingStaleVideosRef.current.add(item.id);
+        failStaleVideoSubmission(item.id, errMsg, now)
+          .then(failed => {
+            if (!failed) return;
+            setGeneratedMedia(prev => prev.map(media =>
+              media.id === item.id && media.status === 'pending' && !media.taskId
+                ? { ...media, isLoading: false, status: 'failed' as const, error: errMsg }
+                : media
+            ));
+          })
+          .catch(() => {})
+          .finally(() => { checkingStaleVideosRef.current.delete(item.id); });
+      }
+
       setGeneratedMedia(prev => {
         let changed = false;
         const next = prev.map(item => {
-          // Only cards that never received a provider handle are failed here.
-          if (!isStuckPendingMedia(item, now)) return item;
+          if (item.mediaType !== 'image' || !isStuckPendingMedia(item, now)) return item;
           changed = true;
-          const errMsg = 'Generation request did not start (timed out before a task ID was returned). You can remove this entry.';
-          if (item.mediaType === 'video') {
-            updateVideoStatus(item.id, 'failed', { metadata: { error: errMsg } }).catch(() => {});
-          } else {
-            updateImageStatus(item.id, 'failed', { metadata: { error: errMsg } }).catch(() => {});
-          }
+          updateImageStatus(item.id, 'failed', { metadata: { error: errMsg } }).catch(() => {});
           return { ...item, isLoading: false, status: 'failed' as const, error: errMsg };
         });
         return changed ? next : prev;
@@ -575,8 +607,14 @@ const AuthorizedWorkspace: React.FC<{
   const persistCompletedVideo = async (media: GeneratedMedia) => {
     const MAX_SAVE_ATTEMPTS = 6;
     for (let attempt = 1; attempt <= MAX_SAVE_ATTEMPTS; attempt++) {
+      if (deletedMediaIdsRef.current.has(media.id)) throw new DeletedVideoError();
       await assertWorkspaceSession();
       const savedResult = await saveVideo(media);
+      if (savedResult && deletedMediaIdsRef.current.has(media.id)) {
+        // Deleted while saving: remove the copy this save just wrote.
+        await deleteImage({ ...media, storagePath: savedResult.storagePath, thumbnailPath: savedResult.thumbnailPath }).catch(() => {});
+        throw new DeletedVideoError();
+      }
       if (savedResult) return savedResult;
       if (attempt < MAX_SAVE_ATTEMPTS) {
         await new Promise(resolve => setTimeout(resolve, 5000));
@@ -700,6 +738,7 @@ const AuthorizedWorkspace: React.FC<{
         toast.success('Video Ready', 'A queued video generation completed.');
       }
     } catch (error: any) {
+      if (deletedMediaIdsRef.current.has(videoId)) return;
       const message = error?.message || 'Video generation failed';
       if (isRecoverableVideoTaskError(error)) {
         await updateVideoStatus(videoId, 'processing', { metadata: { pollingWarning: message } });
@@ -910,6 +949,19 @@ const AuthorizedWorkspace: React.FC<{
         setActiveRequests(value=>Math.max(0,value-1));toast.error('Video not submitted',message);return;
       }
 
+      if (deletedMediaIdsRef.current.has(videoId)) {
+        // Deleted while its row was being created: remove that row and submit nothing.
+        await deleteImage(placeholder).catch(() => {});
+        setActiveRequests(value => Math.max(0, value - 1));
+        return;
+      }
+
+      // Keep the shared pending row alive while uploads, preprocessing and
+      // the provider's initial task creation are in flight.
+      const submissionHeartbeat = setInterval(() => {
+        refreshVideoSubmission(videoId).catch(() => {});
+      }, VIDEO_SUBMISSION_HEARTBEAT_INTERVAL_MS);
+
       const progressToastId = toast.loading(
         'Generating video...',
         config.videoModel === 'minimax-h3'
@@ -938,6 +990,7 @@ const AuthorizedWorkspace: React.FC<{
         if (supabase) {
           await supabase.from('generations').update({ task_id: taskId }).eq('id', videoId);
         }
+        clearInterval(submissionHeartbeat);
 
         // Log as soon as EvoLink accepts/reserves credits for the task. The
         // previous success-only logging omitted billed tasks that later hit a
@@ -1048,6 +1101,7 @@ const AuthorizedWorkspace: React.FC<{
           toast.success('Generation Complete', 'Video created successfully.');
         }
       } catch (error: any) {
+        if (deletedMediaIdsRef.current.has(videoId)) { toast.dismissToast(progressToastId); return; }
         console.error("Video generation failed", error);
         const { title, message } = parseErrorMessage(error);
 
@@ -1086,6 +1140,7 @@ const AuthorizedWorkspace: React.FC<{
         toast.error(title, message);
         toast.dismissToast(progressToastId);
       } finally {
+        clearInterval(submissionHeartbeat);
         setActiveRequests(prev => Math.max(0, prev - 1));
       }
       return;
@@ -1229,6 +1284,7 @@ const AuthorizedWorkspace: React.FC<{
   };
 
   const handleDelete = async (media: GeneratedMedia) => {
+    deletedMediaIdsRef.current.add(media.id);
     setGeneratedMedia(prev => prev.filter(m => m.id !== media.id));
     try {
       await deleteImage(media);
@@ -1240,6 +1296,7 @@ const AuthorizedWorkspace: React.FC<{
 
   const handleDeleteMultiple = async (mediaIds: string[]) => {
     const toDelete = generatedMedia.filter(m => mediaIds.includes(m.id));
+    mediaIds.forEach(id => deletedMediaIdsRef.current.add(id));
     setGeneratedMedia(prev => prev.filter(m => !mediaIds.includes(m.id)));
     try {
       await deleteImages(toDelete);
@@ -1303,9 +1360,22 @@ const AuthorizedWorkspace: React.FC<{
   };
 
   const handleDeleteFolder = async (folderId: string) => {
+    // Cards in the folder tree are marked too: a video whose row is still being
+    // created is not visible to the delete yet. A failed delete unmarks what it kept.
+    const marked = new Set<string>();
+    let inMemory: GeneratedMedia[] = [];
+    const markDeleted = (ids: string[], folderIds: string[] = []) => {
+      inMemory = [...inMemory, ...generatedMedia.filter(media => media.folderId && folderIds.includes(media.folderId) && !ids.includes(media.id))];
+      [...ids, ...inMemory.map(media => media.id)].forEach(id => {
+        if (!deletedMediaIdsRef.current.has(id)) { marked.add(id); deletedMediaIdsRef.current.add(id); }
+      });
+    };
     try {
-      const result = await deleteFolder(folderId);
-      const deletedMediaIds = new Set(result.mediaIds);
+      const result = await deleteFolder(folderId, markDeleted);
+      markDeleted(result.mediaIds);
+      // Their rows may have been created after the delete read the folder.
+      await Promise.all(inMemory.map(media => deleteImage(media).catch(() => {})));
+      const deletedMediaIds = new Set([...result.mediaIds, ...inMemory.map(media => media.id)]);
       setGeneratedMedia(prev => prev.filter(media => !deletedMediaIds.has(media.id)));
       toast.success(
         'Folder Deleted',
@@ -1313,6 +1383,8 @@ const AuthorizedWorkspace: React.FC<{
       );
       return result;
     } catch (error) {
+      const kept = new Set([...(error instanceof workspaceStorage.FolderDeleteError ? error.keptMediaIds : []), ...inMemory.map(media => media.id)]);
+      kept.forEach(id => { if (marked.has(id)) deletedMediaIdsRef.current.delete(id); });
       console.error('Folder delete failed', error);
       toast.error('Delete Failed', 'The folder and its contents could not be fully deleted.');
       throw error;
