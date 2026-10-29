@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { LOCAL_PROVIDERS, MODEL_ROUTES, PROVIDER_KEYS, PROVIDER_LABELS, resolveProvider, type AIProvider, type ProviderAvailability, type ProviderChoice } from '../lib/providers';
+import { LOCAL_PROVIDERS, MODEL_ROUTES, PROVIDER_LABELS, resolveProvider, type AIProvider, type ProviderAvailability, type ProviderChoice } from '../lib/providers';
 import { getProviderAvailability, getProviderPreferences, saveProviderPreference } from '../services/providerRouting';
 import { Dropdown } from './ControlDropdown';
 
@@ -27,7 +27,8 @@ export function useProviderRoute(model: string) {
     void refresh(); window.addEventListener(EVENT,refresh); window.addEventListener('focus',refresh);
     return () => { active = false; window.removeEventListener(EVENT,refresh); window.removeEventListener('focus',refresh); };
   },[model]);
-  return state.model === model ? state : { model,choice:'auto' as const,available:{} };
+  // loaded tells callers the route reflects saved preferences and availability, not the initial placeholder.
+  return state.model === model ? { ...state, loaded:true } : { model,choice:'auto' as const,available:{},loaded:false };
 }
 export function ProviderRouteControl({ model, compact = false, showError = true }: { model:string; compact?:boolean; showError?:boolean }) {
   const route = useProviderRoute(model);
@@ -40,7 +41,7 @@ export function ProviderRouteControl({ model, compact = false, showError = true 
   };
   const options = [{value:'auto',label:`Auto${route.provider && route.choice === 'auto' ? ` · ${PROVIDER_LABELS[route.provider]}` : ''}`},
     // Local servers appear as Auto fallbacks for cloud models; they are pinned only on local models.
-    ...(MODEL_ROUTES[model] || []).filter(provider => !LOCAL_PROVIDERS.includes(provider) || MODEL_ROUTES[model].every(route => LOCAL_PROVIDERS.includes(route))).map(provider => ({value:provider,label:`${PROVIDER_LABELS[provider]}${route.available[provider] ? '' : LOCAL_PROVIDERS.includes(provider) ? ` · set ${PROVIDER_KEYS[provider]}` : ' · key needed'}`}))];
+    ...(MODEL_ROUTES[model] || []).filter(provider => !LOCAL_PROVIDERS.includes(provider) || MODEL_ROUTES[model].every(route => LOCAL_PROVIDERS.includes(route))).map(provider => ({value:provider,label:`${PROVIDER_LABELS[provider]}${route.available[provider] ? '' : LOCAL_PROVIDERS.includes(provider) ? ' · not running' : ' · key needed'}`}))];
   return <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
     {compact ? <><span className="text-gray-500">Provider</span><Dropdown label="Provider" value={route.choice} options={options} onSelect={value => void save(value)} disabled={saving} compact /></> : <label className="flex min-w-0 max-w-full flex-1 items-center gap-2 text-gray-400">Provider
       <select aria-label={`${MODELS[model] || model} provider`} value={route.choice} disabled={saving}

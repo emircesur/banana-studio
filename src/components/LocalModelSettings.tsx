@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { HardDrive, RefreshCw } from 'lucide-react';
-import { LOCAL_SERVERS, type LocalChoice, type LocalServer } from '../lib/localModels';
+import { LOCAL_IMAGE_MODEL, LOCAL_SERVERS, type LocalChoice, type LocalServer } from '../lib/localModels';
+import { useProviderRoute } from './ProviderRoutingSettings';
 import { getLocalChoice, getLocalServerStatus, listLocalModels, setLocalChoice, type LocalModelList } from '../services/localModelsService';
 
 type Status = Record<string, boolean | null>;
@@ -30,14 +31,18 @@ export function LocalServerIndicator() {
   </span>;
 }
 
-const Picker = ({ id, label, choice, options, empty, hint }: { id: string; label: string; choice: LocalChoice; options: string[]; empty: string; hint?: string }) => {
+const Picker = ({ id, label, choice, options, empty, hint, missing }: { id: string; label: string; choice: LocalChoice; options: string[]; empty: string; hint?: string; missing?: string }) => {
   const [value, setValue] = useState(() => getLocalChoice(choice));
+  // A saved choice stays selectable, but say so when the active server does not list it.
+  const unlisted = !!missing && !!value && options.length > 0 && !options.includes(value);
   return <label htmlFor={id} className="mt-3 block text-sm text-gray-300">{label}
     <select id={id} value={value} onChange={event => { setValue(event.target.value); setLocalChoice(choice, event.target.value); }}
+      aria-describedby={unlisted ? `${id}-missing` : undefined}
       className="mt-1.5 block w-full rounded-xl border border-gray-700 bg-gray-900 p-2.5 text-base sm:text-sm text-white outline-none focus:border-violet-400">
       <option value="">{empty}</option>
       {[...new Set([...options, ...(value ? [value] : [])])].map(name => <option key={name} value={name}>{name}</option>)}
     </select>
+    {unlisted && <span id={`${id}-missing`} role="status" className="mt-1 block text-xs text-amber-300">{missing}</span>}
     {hint && <span className="mt-1 block text-xs leading-relaxed text-gray-500">{hint}</span>}
   </label>;
 };
@@ -54,7 +59,11 @@ export function LocalModelSettings() {
     }
     return () => controller.abort();
   }, [status.sdwebui, status.comfyui, refresh]);
-  const checkpoints = [...(lists.sdwebui?.models || []), ...(lists.comfyui?.models || [])];
+  // Checkpoint names are server-specific: list only the server Local image routes to; video always runs on ComfyUI.
+  const imageRoute = useProviderRoute(LOCAL_IMAGE_MODEL).provider;
+  const imageServer = imageRoute === 'sdwebui' || imageRoute === 'comfyui' ? imageRoute : null;
+  const imageCheckpoints = imageServer ? lists[imageServer]?.models || [] : [];
+  const comfyCheckpoints = lists.comfyui?.models || [];
   const workflows = lists.comfyui?.workflows || [];
   const folder = lists.comfyui?.workflowsDir;
 
@@ -69,13 +78,15 @@ export function LocalModelSettings() {
         <span className={`h-2 w-2 shrink-0 translate-y-[-1px] rounded-full ${dot(status[server])}`} aria-hidden="true" /><span>{LOCAL_SERVERS[server].label} <span className="text-gray-500">· {stateLabel(status[server])}</span></span>
       </li>)}
     </ul>
-    <Picker id="local-image-model" label="Image checkpoint" choice="imageModel" options={checkpoints} empty="Server default / first installed"
+    <Picker id="local-image-model" label={`Image checkpoint${imageServer ? ` · ${LOCAL_SERVERS[imageServer].label}` : ''}`} choice="imageModel" options={imageCheckpoints} empty="Server default / first installed"
+      missing={imageServer ? `Not installed on ${LOCAL_SERVERS[imageServer].label}; that server will reject it.` : undefined}
       hint="Used by Local · Stable Diffusion / ComfyUI. Pick the server in Provider routing." />
     <Picker id="local-image-workflow" label="Image workflow (ComfyUI)" choice="imageWorkflow" options={workflows} empty="Built-in SD / SDXL graph"
       hint="Custom workflows run Flux, SD3 or any other model your ComfyUI has." />
     <Picker id="local-video-workflow" label="Video workflow (ComfyUI)" choice="videoWorkflow" options={workflows} empty="Choose a video workflow"
       hint="Required for Local · ComfyUI workflow video, e.g. Wan or LTX-Video graphs." />
-    <Picker id="local-video-model" label="Video checkpoint" choice="videoModel" options={checkpoints} empty="As saved in the workflow" />
+    <Picker id="local-video-model" label="Video checkpoint · ComfyUI" choice="videoModel" options={comfyCheckpoints} empty="As saved in the workflow, or the first ComfyUI checkpoint"
+      missing="Not installed on ComfyUI; workflows that load it by name will fail." />
     <p className="pt-2 text-xs leading-relaxed text-gray-500">
       Export workflows with ComfyUI’s “Save (API Format)” and use placeholders such as <code>{'{{prompt}}'}</code>, <code>{'{{width}}'}</code>, <code>{'{{height}}'}</code>, <code>{'{{seed}}'}</code>, <code>{'{{checkpoint}}'}</code>, <code>{'{{image}}'}</code>, <code>{'{{mask}}'}</code>, <code>{'{{frames}}'}</code> and <code>{'{{fps}}'}</code>.
       {folder ? <> Workflow folder: <code className="break-all">{folder}</code></> : ' Set COMFYUI_WORKFLOWS_DIR on the server to add workflows.'}

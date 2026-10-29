@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { isLocalAssetName, isWorkflowName, localServerUrl } from '../../src/lib/localModels.js';
+import { isLocalAssetName, isWorkflowName, localServerUrl, type LocalServer } from '../../src/lib/localModels.js';
 
 /** Self-hosted image/video servers. Destinations come only from server configuration;
  * the browser chooses a model or workflow name, never a URL or file path. */
@@ -18,9 +18,10 @@ export const isSeed = (value: unknown): value is number => Number.isSafeInteger(
 export const localTuning = () => ({ steps: env('LOCAL_IMAGE_STEPS', 25, 1, 150), cfg: env('LOCAL_IMAGE_CFG', 6, 0, 30),
   denoise: env('LOCAL_IMAGE_DENOISE', 0.6, 0.05, 1), inpaintDenoise: env('LOCAL_INPAINT_DENOISE', 0.75, 0.05, 1), negative: (process.env.LOCAL_NEGATIVE_PROMPT || '').slice(0, 2000), fps: env('LOCAL_VIDEO_FPS', 16, 1, 60) });
 
+/** Only the status reaches users: a server's raw error body can expose paths or internal details. */
 const json = async (response: Response, label: string) => {
   const data = await response.json().catch(() => null);
-  if (!response.ok) throw Object.assign(new Error(`${label} rejected the request (${response.status}).${typeof data?.error === 'string' ? ` ${data.error.slice(0, 200)}` : typeof data?.error?.message === 'string' ? ` ${data.error.message.slice(0, 200)}` : ''}`), { status: response.status });
+  if (!response.ok) throw Object.assign(new Error(`${label} rejected the request (${response.status}). Check the server console for details.`), { status: response.status });
   return data;
 };
 
@@ -188,12 +189,17 @@ async function comfyWaitImage(id: string, signal: AbortSignal): Promise<Buffer> 
 
 // ---- Discovery for the settings screen ----
 const probe = async (url: string) => { try { return (await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(1500) })).ok; } catch { return false; } };
+// Provider availability is read before every generation; a short cache keeps that cheap.
+let statusCache: { at: number; key: string; value: Record<string, boolean | null> } | null = null;
 export async function localServerStatus(): Promise<Record<string, boolean | null>> {
   const urls: Record<string, string> = { ollama: '/api/version', openaicompat: '/models', sdwebui: '/sdapi/v1/options', comfyui: '/system_stats' };
-  return Object.fromEntries(await Promise.all(Object.entries(urls).map(async ([server, suffix]) => {
-    const base = localServerUrl(server as any, process.env);
-    return [server, base ? await probe(base + suffix) : null];
-  })));
+  const bases = Object.keys(urls).map(server => localServerUrl(server as LocalServer, process.env));
+  const key = JSON.stringify(bases);
+  if (statusCache && statusCache.key === key && Date.now() - statusCache.at < 3000) return statusCache.value;
+  const value = Object.fromEntries(await Promise.all(Object.entries(urls).map(async ([server, suffix], index) =>
+    [server, bases[index] ? await probe(bases[index] + suffix) : null])));
+  statusCache = { at: Date.now(), key, value };
+  return value;
 }
 export async function listLocalModels(server: string): Promise<{ models: string[]; workflows?: string[]; workflowsDir?: string }> {
   const signal = AbortSignal.timeout(5000);

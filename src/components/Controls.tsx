@@ -32,7 +32,7 @@ import { createPromptPreparation } from '../lib/prompts/promptPreparation';
 import type { TextTaskStage } from '../services/geminiClient';
 import type { BrainstormGenerationRequest } from '../lib/brainstorm/brainstormGeneration';
 import { getOriginalImagePrompt } from '../lib/prompts/promptHistory';
-import { diffPrompts } from '../lib/prompts/promptDiff';
+import { PromptDiffText } from './PromptDiffText';
 import { LocalImageComposerOptions } from './LocalImageActions';
 import { updateImageDraftPrompt, validateImageGenerationReferences, getSunburstEditIntent } from '../lib/images/imagePrompting';
 import { isValidEditRegion } from '../lib/images/imageEditRegion';
@@ -2550,9 +2550,7 @@ export const Controls: React.FC<ControlsProps> = ({
             </div>
             <p className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-5 text-gray-300">
               {/* Compare what the user sees: image prompts display reference names, not stored tags. */}
-              {diffPrompts(displayPrompt(preEnhancePrompt), displayPrompt(config.prompt)).map((part, index) => part.type === 'same' ? <span key={index}>{part.text}</span>
-                : part.type === 'added' ? <ins key={index} className="rounded-sm bg-emerald-500/15 text-emerald-200 no-underline">{part.text}</ins>
-                : <del key={index} className="rounded-sm bg-red-500/10 text-red-300/80">{part.text}</del>)}
+              <PromptDiffText before={displayPrompt(preEnhancePrompt)} after={displayPrompt(config.prompt)} />
             </p>
           </div>
         )}

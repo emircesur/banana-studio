@@ -35,12 +35,12 @@ export function resolveProvider(model: string, choice: unknown, available: Provi
   if (choice != null && choice !== 'auto') {
     if (!routes.includes(choice as AIProvider)) throw new Error('This provider does not serve the selected model.');
     if (!available[choice as AIProvider]) throw new Error(LOCAL_PROVIDERS.includes(choice as AIProvider)
-      ? `${PROVIDER_LABELS[choice as AIProvider]} is not configured. Set ${PROVIDER_KEYS[choice as AIProvider]} on the server, or choose Auto in AI settings.`
+      ? `${PROVIDER_LABELS[choice as AIProvider]} is not reachable. Start it, check ${PROVIDER_KEYS[choice as AIProvider]} on the server, or choose Auto in AI settings.`
       : `Add your ${PROVIDER_LABELS[choice as AIProvider]} key in Provider keys, or choose Auto in AI settings.`);
     return choice as AIProvider;
   }
   const selected = routes.find(provider => available[provider]);
-  if (!selected && routes.every(provider => LOCAL_PROVIDERS.includes(provider))) throw new Error(`This local model needs ${routes.map(provider => PROVIDER_LABELS[provider]).join(' or ')}. Set ${routes.map(provider => PROVIDER_KEYS[provider]).join(' or ')} on the server; the desktop app connects to the default local address.`);
+  if (!selected && routes.every(provider => LOCAL_PROVIDERS.includes(provider))) throw new Error(`This local model needs ${routes.map(provider => PROVIDER_LABELS[provider]).join(' or ')} running. Start one (the desktop app uses the default local address) or set ${routes.map(provider => PROVIDER_KEYS[provider]).join(' or ')} on the server.`);
   if (!selected) throw new Error(`This model needs ${routes.map(provider => PROVIDER_LABELS[provider]).join(' or ')}. Add one key in Provider keys; the other keys are optional.`);
   return selected;
 }

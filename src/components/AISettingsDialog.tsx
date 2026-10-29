@@ -35,6 +35,7 @@ export function AISettingsDialog({ open, onClose }: { open: boolean; onClose: ()
   const dialog = useRef<HTMLDialogElement>(null);
   const tabRefs = useRef<Partial<Record<TabId, HTMLButtonElement | null>>>({});
   const [tab, setTab] = useState<TabId>(readTab);
+  const [visited, setVisited] = useState<Set<TabId>>(() => new Set([tab]));
   const local = isLocalWorkspace();
   const status = useLocalServerStatus(open ? 1 : 0);
   const configured = Object.values(status).filter(value => value != null).length;
@@ -44,9 +45,11 @@ export function AISettingsDialog({ open, onClose }: { open: boolean; onClose: ()
     const element = dialog.current;
     if (open && element && !element.open) { element.showModal(); tabRefs.current[tab]?.focus(); }
     if (!open && element?.open) element.close();
+    if (!open) setVisited(new Set([tab]));
   }, [open]);
   const select = (next: TabId, focus = false) => {
     setTab(next);
+    setVisited(current => current.has(next) ? current : new Set([...current, next]));
     try { localStorage.setItem(TAB_KEY, next); } catch { /* Remembering the tab is optional. */ }
     if (focus) tabRefs.current[next]?.focus();
   };
@@ -58,7 +61,6 @@ export function AISettingsDialog({ open, onClose }: { open: boolean; onClose: ()
     event.preventDefault();
     select(TABS[(next + TABS.length) % TABS.length].id, true);
   };
-  const active = TABS.find(item => item.id === tab)!;
 
   return <dialog ref={dialog} aria-labelledby="ai-settings-title" aria-describedby="ai-settings-subtitle"
     onCancel={event => { event.preventDefault(); onClose(); }} onClick={event => { if (event.target === event.currentTarget) onClose(); }}
@@ -91,7 +93,7 @@ export function AISettingsDialog({ open, onClose }: { open: boolean; onClose: ()
               const selected = item.id === tab;
               const Icon = item.icon;
               return <button key={item.id} ref={element => { tabRefs.current[item.id] = element; }} type="button" role="tab" id={`ai-tab-${item.id}`}
-                aria-selected={selected} aria-controls="ai-settings-panel" tabIndex={selected ? 0 : -1} onClick={() => select(item.id)}
+                aria-selected={selected} aria-controls={`ai-panel-${item.id}`} tabIndex={selected ? 0 : -1} onClick={() => select(item.id)}
                 className={`group relative flex shrink-0 items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${
                   selected ? 'bg-white/[0.07] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]' : 'text-gray-400 hover:bg-white/[0.04] hover:text-gray-200'}`}>
                 {selected && <span aria-hidden="true" className="absolute inset-y-2 left-0 hidden w-[3px] rounded-full bg-lime-400 shadow-[0_0_10px_rgba(163,230,53,0.7)] md:block" />}
@@ -120,13 +122,17 @@ export function AISettingsDialog({ open, onClose }: { open: boolean; onClose: ()
           </div>
         </nav>
 
-        <section id="ai-settings-panel" role="tabpanel" aria-labelledby={`ai-tab-${active.id}`} tabIndex={0}
-          className="min-h-0 min-w-0 overflow-y-auto px-5 py-5 focus-visible:outline-none sm:px-7 sm:py-6 [&>*:first-child]:mt-0 [&>*:first-child]:border-t-0 [&>*:first-child]:pt-0">
-          {open && tab === 'text' && <TextModelSettings />}
-          {open && tab === 'local' && <LocalModelSettings />}
-          {open && tab === 'routing' && <ProviderRoutingSettings />}
-          {open && tab === 'usage' && <><MyUsage /><BudgetSettings /></>}
-        </section>
+        <div className="min-h-0 min-w-0 overflow-y-auto">
+          {/* Visited panels stay mounted (hidden) so unsaved choices survive tab switches; closing the dialog resets them. */}
+          {TABS.filter(item => open && visited.has(item.id)).map(item => <section key={item.id} id={`ai-panel-${item.id}`} role="tabpanel"
+            aria-labelledby={`ai-tab-${item.id}`} hidden={item.id !== tab} tabIndex={0}
+            className="px-5 py-5 focus-visible:outline-none sm:px-7 sm:py-6 [&>*:first-child]:mt-0 [&>*:first-child]:border-t-0 [&>*:first-child]:pt-0">
+            {item.id === 'text' && <TextModelSettings />}
+            {item.id === 'local' && <LocalModelSettings />}
+            {item.id === 'routing' && <ProviderRoutingSettings />}
+            {item.id === 'usage' && <><MyUsage /><BudgetSettings /></>}
+          </section>)}
+        </div>
       </div>
     </div>
   </dialog>;

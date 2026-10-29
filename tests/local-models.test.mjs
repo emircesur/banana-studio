@@ -16,7 +16,7 @@ const bundle = async contents => {
 };
 const lib = await bundle(`export * from './src/lib/localModels.ts'; export * from './api/_lib/localMedia.ts';
   export { requestImage } from './api/_lib/imageProviders.ts'; export { diffPrompts } from './src/lib/prompts/promptDiff.ts';
-  export { buildOpenAICompatibleChat } from './src/lib/prompts/ollamaText.ts'; export { editMaskPNG } from './api/_lib/protectedImageEdit.ts';
+  export { buildOpenAICompatibleChat, isVisionUnsupported, openAICompatibleErrorMessage } from './src/lib/prompts/ollamaText.ts'; export { editMaskPNG } from './api/_lib/protectedImageEdit.ts';
   export { decodeRaster } from './api/_lib/rasterCodec.ts'; export { buildGalleryUpscaleConfig } from './src/components/galleryImageEdit.ts';`);
 const { selectJobs } = await import('../desktop/server/scheduler.mjs');
 
@@ -299,4 +299,21 @@ test('gallery upscale reuses the image as a plain reference on the local model',
   assert.equal(config.localUpscale, 4);
   assert.deepEqual(config.referenceImages, [{ id: 'gallery-abc', data: 'https://x.invalid/a.png', mimeType: 'image/png' }]);
   assert.equal(config.count, 1);
+});
+
+test('local server error bodies never reach the user, only the status', async () => {
+  await withEnv({ SDWEBUI_BASE_URL: 'http://sd.invalid:7860' }, async () =>
+    Response.json({ error: 'Traceback: internal-secret-detail in private.safetensors' }, { status: 500 }), async () => {
+    const error = await lib.requestImage('sdwebui', 'local-image', { prompt: 'x', aspect_ratio: '1:1', resolution: '1K' }, null, '', 'audit').catch(failure => failure);
+    assert.match(error.message, /rejected the request \(500\)/);
+    assert.doesNotMatch(error.message, /internal-secret-detail|Traceback|safetensors/);
+  });
+});
+
+test('only explicit "no image support" errors suggest a vision model', () => {
+  for (const detail of ['model does not support images', "This model doesn't support image input", 'Vision is not supported by this model', 'this model is missing data required for image input']) {
+    assert.equal(lib.isVisionUnsupported(detail), true, detail);
+  }
+  for (const detail of ['image is too large', 'failed to decode image', 'Image exceeds 20MB', undefined]) assert.equal(lib.isVisionUnsupported(detail), false, String(detail));
+  assert.match(lib.openAICompatibleErrorMessage(400, 'image is too large'), /rejected this request/);
 });
