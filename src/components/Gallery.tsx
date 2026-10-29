@@ -3,7 +3,7 @@ import { LocalImageActions } from './LocalImageActions';
 import { isLocalWorkspace } from '../lib/config/runtimeConfig';
 import { getPersonGroups, getPersonId } from '../lib/references/personReferences';
 import { personColor } from './PersonAssignment';
-import { getImageOutputRatio, getImageResolutionLabel, hasImageSizeMismatch, SUNBURST_MODEL } from '../lib/images/openaiImage';
+import { getImageOutputRatio, getImageResolutionLabel, hasImageSizeMismatch, RECOVERABLE_IMAGE_MODELS, SUNBURST_MODEL } from '../lib/images/openaiImage';
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import JSZip from 'jszip';
 import { isMobilePhotoDevice, preparePhotosForSharing, sharePreparedPhotos } from '../services/photoShareService';
@@ -687,7 +687,7 @@ const CustomVideoPlayer: React.FC<{
 
 const RecoverImageButton = ({ media, onRecover }: { media: GeneratedMedia; onRecover?: (image: GeneratedMedia) => Promise<void> }) => {
   const [checking, setChecking] = useState(false);
-  if (!onRecover || media.imageModel !== SUNBURST_MODEL) return null;
+  if (!onRecover || !media.imageModel || !RECOVERABLE_IMAGE_MODELS.includes(media.imageModel)) return null;
   return <button disabled={checking} onClick={async event => {
     event.stopPropagation();
     if (checking) return;

@@ -1097,7 +1097,8 @@ export const Controls: React.FC<ControlsProps> = ({
   );
   const hasBrainstormInput = brainstormCategory === 'simple' || config.youtubeSource
     ? Boolean(config.prompt.trim() || config.referenceImages.length) : config.referenceImages.length > 0;
-  const canBrainstormGenerate = config.mode === 'image' && Boolean(onBrainstormGenerate && !sunburstError && hasBrainstormInput);
+  // Like Generate: a Re-create's saved references must finish loading first.
+  const canBrainstormGenerate = config.mode === 'image' && !isDraftLoading && Boolean(onBrainstormGenerate && !sunburstError && hasBrainstormInput);
   const isBrainstormActive = config.mode === 'image' && isBrainstormPanelOpen && !isMinimized;
 
   const handleBrainstorm = async () => {

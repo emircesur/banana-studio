@@ -1178,6 +1178,11 @@ const mergeVideoMetadata = (existing: Record<string, any>, incoming: Record<stri
   return merged;
 };
 
+// A retry after a failed row save reuses the stored file instead of moving the video again.
+const completedVideoTransfers = new Map<string, { source: string; storagePath: string; thumbnailPath: string | null; pendingThumbnail?: Blob }>();
+// Overlapping transfers of one generation can leave either source in the stored file, so none of them records it.
+const activeVideoTransfers = new Map<string, Set<{ overlapped: boolean }>>();
+
 export const saveVideo = async (
   media: GeneratedMedia,
   expectedUserId?: string,
@@ -1205,7 +1210,36 @@ export const saveVideo = async (
     let thumbnailUrl = media.thumbnailUrl;
     let uploadedThumbnailPath: string | null = media.thumbnailPath || null;
 
-    if (!videoUrl.startsWith('data:')) {
+    const transferKey = `${userId}:${media.id}`;
+    const previousTransfer = completedVideoTransfers.get(transferKey);
+    // Another source overwrites the same stored file, so its entry no longer describes it.
+    if (previousTransfer && previousTransfer.source !== videoUrl) completedVideoTransfers.delete(transferKey);
+    const reusedUrl = previousTransfer?.source === videoUrl ? await createMediaAccessUrl(previousTransfer.storagePath) : undefined;
+    if (previousTransfer && reusedUrl) {
+      publicUrl = reusedUrl;
+      uploadedStoragePath = previousTransfer.storagePath;
+      await assertSameUser();
+      // The poster is optional: retry a failed poster upload, but never block the video row on it.
+      try {
+        if (!previousTransfer.thumbnailPath && previousTransfer.pendingThumbnail) {
+          const { error: thumbnailUploadError } = await supabase.storage.from(MEDIA_BUCKET_NAME)
+            .upload(thumbnailPath, previousTransfer.pendingThumbnail, { contentType: 'image/png', cacheControl: '0', upsert: true });
+          if (!thumbnailUploadError) { previousTransfer.thumbnailPath = thumbnailPath; delete previousTransfer.pendingThumbnail; }
+        }
+        if (previousTransfer.thumbnailPath) {
+          // The row stores the durable path; a fresh signed URL is only for this session.
+          uploadedThumbnailPath = previousTransfer.thumbnailPath;
+          const reusedThumbnailUrl = await createMediaAccessUrl(previousTransfer.thumbnailPath);
+          if (reusedThumbnailUrl) thumbnailUrl = reusedThumbnailUrl;
+        }
+      } catch (thumbnailError: any) {
+        console.warn('Saved video poster could not be renewed:', thumbnailError?.message || thumbnailError);
+      }
+    } else if (!videoUrl.startsWith('data:')) {
+      const activeTransfers = activeVideoTransfers.get(transferKey) || new Set<{ overlapped: boolean }>();
+      const transfer = { overlapped: activeTransfers.size > 0 };
+      activeTransfers.forEach(other => { other.overlapped = true; });
+      activeTransfers.add(transfer); activeVideoTransfers.set(transferKey, activeTransfers);
       try {
         const response = await fetch(await refreshMediaAccessUrl(videoUrl, false));
         if (!response.ok) {
@@ -1270,6 +1304,7 @@ export const saveVideo = async (
         }
         publicUrl = storagePublicUrl;
         uploadedStoragePath = storagePath;
+        if (!transfer.overlapped) completedVideoTransfers.set(transferKey, { source: videoUrl, storagePath, thumbnailPath: null, ...(thumbnailBlob ? { pendingThumbnail: thumbnailBlob } : {}) });
 
         if (thumbnailBlob) {
           await assertSameUser();
@@ -1287,11 +1322,17 @@ export const saveVideo = async (
             if (savedThumbnailUrl) {
               thumbnailUrl = savedThumbnailUrl;
               uploadedThumbnailPath = thumbnailPath;
+              if (!transfer.overlapped) completedVideoTransfers.set(transferKey, { source: videoUrl, storagePath, thumbnailPath });
             }
           }
         }
       } catch (fetchErr: any) {
+        // Never persist the expiring provider URL; the caller retries the copy.
         console.warn("Failed to fetch video for storage upload:", fetchErr.message);
+        return undefined;
+      } finally {
+        activeTransfers.delete(transfer);
+        if (!activeTransfers.size) activeVideoTransfers.delete(transferKey);
       }
     }
 
@@ -1427,6 +1468,7 @@ export const saveVideo = async (
       console.error("saveVideo DB upsert failed:", dbError.code, dbError.message, JSON.stringify(dbError));
       return undefined;
     }
+    completedVideoTransfers.delete(transferKey);
 
     return {
       publicUrl,

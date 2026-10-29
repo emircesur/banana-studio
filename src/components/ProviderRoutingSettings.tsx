@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { LOCAL_PROVIDERS, MODEL_ROUTES, PROVIDER_LABELS, resolveProvider, type AIProvider, type ProviderAvailability, type ProviderChoice } from '../lib/providers';
 import { getProviderAvailability, getProviderPreferences, saveProviderPreference } from '../services/providerRouting';
 import { Dropdown } from './ControlDropdown';
+import { isLocalWorkspace } from '../lib/config/runtimeConfig';
 
 const EVENT = 'banana-provider-routes-changed';
 const MODELS: Record<string,string> = {
@@ -41,7 +42,10 @@ export function ProviderRouteControl({ model, compact = false, showError = true 
   };
   const options = [{value:'auto',label:`Auto${route.provider && route.choice === 'auto' ? ` · ${PROVIDER_LABELS[route.provider]}` : ''}`},
     // Local servers appear as Auto fallbacks for cloud models; they are pinned only on local models.
-    ...(MODEL_ROUTES[model] || []).filter(provider => !LOCAL_PROVIDERS.includes(provider) || MODEL_ROUTES[model].every(route => LOCAL_PROVIDERS.includes(route))).map(provider => ({value:provider,label:`${PROVIDER_LABELS[provider]}${route.available[provider] ? '' : LOCAL_PROVIDERS.includes(provider) ? ' · not running' : ' · key needed'}`}))];
+    // Codex runs the desktop user's own CLI; hosted workspaces never offer it.
+    ...(MODEL_ROUTES[model] || []).filter(provider => (provider !== 'codex' || isLocalWorkspace())
+      && (!LOCAL_PROVIDERS.includes(provider) || MODEL_ROUTES[model].every(route => LOCAL_PROVIDERS.includes(route))))
+      .map(provider => ({value:provider,label:`${PROVIDER_LABELS[provider]}${route.available[provider] ? '' : provider === 'codex' ? ' · sign-in needed' : LOCAL_PROVIDERS.includes(provider) ? ' · not running' : ' · key needed'}`}))];
   return <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
     {compact ? <><span className="text-gray-500">Provider</span><Dropdown label="Provider" value={route.choice} options={options} onSelect={value => void save(value)} disabled={saving} compact /></> : <label className="flex min-w-0 max-w-full flex-1 items-center gap-2 text-gray-400">Provider
       <select aria-label={`${MODELS[model] || model} provider`} value={route.choice} disabled={saving}
@@ -62,6 +66,6 @@ export function ProviderRoutingSettings() {
         <p className="mb-2 truncate text-sm font-medium text-gray-100" title={MODELS[model]}>{MODELS[model]}</p><ProviderRouteControl model={model} showError={false} />
       </div>)}
     </div>
-    <p className="text-xs leading-relaxed text-gray-500">fal.ai covers image/video models; Enhance and Brainstorm require OpenRouter, OpenAI, Gemini or a local server (Ollama, LM Studio; no key). Without a cloud key, Auto falls back to the local text server. Local image and video run on your own Stable Diffusion WebUI or ComfyUI; choose models in Local models. YouTube lookup uses a separate YouTube Data API key. H3 Max requires fal.ai. Seedance 2.5 Relaxed is an EvoLink option; other routes use standard Seedance 2.5.</p>
+    <p className="text-xs leading-relaxed text-gray-500">fal.ai covers image/video models; Enhance and Brainstorm require OpenRouter, OpenAI, Gemini or a local server (Ollama, LM Studio; no key). Without a cloud key, Auto falls back to the local text server. Local image and video run on your own Stable Diffusion WebUI or ComfyUI; choose models in Local models. YouTube lookup uses a separate YouTube Data API key. H3 Max requires fal.ai. Seedance 2.5 Relaxed is an EvoLink option; other routes use standard Seedance 2.5. In the desktop app, GPT Image 2.5 can also use your ChatGPT plan through the Codex CLI after <code>codex login</code>, with no API key.</p>
   </section>;
 }
