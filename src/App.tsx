@@ -31,6 +31,7 @@ import { prepareProtectedImageSource, finishProtectedImageEdit } from './service
 import { getGalleryEditSourceId } from './lib/gallery/galleryEditJobs';
 import { isStuckPendingMedia } from './lib/gallery/stuckPending';
 import { mergeLoadedGalleryHistory } from './lib/gallery/galleryHistoryMerge';
+import { hasUnresumableVideoSubmission, useUnloadWarning } from './lib/shared/unloadWarning';
 import { mergeReconciledGalleryCosts } from './lib/gallery/galleryBillingRefresh';
 import { createPromptPreparation } from './lib/prompts/promptPreparation';
 import { resolveTextModelPreferences } from './lib/prompts/textModels';
@@ -159,6 +160,7 @@ const AuthorizedWorkspace: React.FC<{
   }, []);
 
   const [generatedMedia, setGeneratedMedia] = useState<GeneratedMedia[]>([]);
+  useUnloadWarning(hasUnresumableVideoSubmission(generatedMedia));
   const [imageCostHistory, setImageCostHistory] = useState<{ userId: string; samples: ImageCostSample[] } | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [isInitialGalleryLoading, setIsInitialGalleryLoading] = useState(false);
